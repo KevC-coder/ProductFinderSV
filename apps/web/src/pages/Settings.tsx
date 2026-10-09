@@ -208,7 +208,7 @@ export function Settings() {
             Se abre una ventana de Microsoft Edge con el perfil de la app para que inicies sesión. La app nunca ve ni guarda tu
             contraseña. Te recomendamos usar una cuenta secundaria.
           </p>
-          <Button icon={<LogIn className="size-4" />} onClick={() => connect.mutate()} loading={connect.isPending || status.data?.queue.active === 'login'}>
+          <Button icon={<LogIn className="size-4" />} onClick={() => connect.mutate()} loading={connect.isPending || status.data?.loggingIn}>
             {sessionState === 'connected' ? 'Volver a iniciar sesión' : 'Conectar Facebook'}
           </Button>
           {paused && (
