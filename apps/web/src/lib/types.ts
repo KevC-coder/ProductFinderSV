@@ -7,6 +7,8 @@ export type RunStatus = 'running' | 'ok' | 'error' | 'checkpoint' | 'logged_out'
 export type SessionState = 'connected' | 'logged_out' | 'checkpoint' | 'unknown';
 /** Cómo se abre Edge en las búsquedas (el login siempre es visible). */
 export type BrowserMode = 'visible' | 'offscreen' | 'headless';
+/** Avisos de Windows: todo lo nuevo, solo precio ideal o ninguno. */
+export type NotifyMode = 'all' | 'ideal' | 'off';
 export type BlockedReason = 'disabled' | 'logged_out' | 'paused' | 'rate_limit' | 'cooldown' | 'busy';
 
 export interface WatcherInput {
@@ -117,16 +119,22 @@ export interface Settings {
   errorBackoffMinutes: number;
   maxBackoffMinutes: number;
   maxResultsPerRun: number;
+  notifyMode: NotifyMode;
+  /** Se aceptó el aviso de riesgos de la pantalla de bienvenida. */
+  riskNoticeAccepted: boolean;
   sessionState: SessionState;
   pausedUntil: string | null;
 }
 
-export type EditableSettings = Omit<Settings, 'sessionState' | 'pausedUntil'>;
+/** Lo que se edita en Ajustes (el resto lo maneja el bot o la bienvenida). */
+export type EditableSettings = Omit<Settings, 'sessionState' | 'pausedUntil' | 'riskNoticeAccepted'>;
 
 export interface Status {
   version: string;
-  /** true en el ejecutable de escritorio: el panel puede cerrar el servicio. */
+  /** El panel puede cerrar el servicio. */
   canShutdown: boolean;
+  /** Corre como app de escritorio de Windows (bandeja, inicio con Windows). */
+  desktop: boolean;
   sessionState: SessionState;
   schedulerEnabled: boolean;
   pausedUntil: string | null;
@@ -151,4 +159,14 @@ export interface RunSummary {
   newMatchIds: number[];
   priceDropMatchIds: number[];
   errorMessage: string | null;
+  /** Pedida con "Probar ahora" (no automática). */
+  manual: boolean;
+}
+
+/** Archivo de búsquedas exportadas (para compartir con amigos). */
+export interface WatchersExport {
+  format: string;
+  version: number;
+  exportedAt: string;
+  watchers: WatcherInput[];
 }

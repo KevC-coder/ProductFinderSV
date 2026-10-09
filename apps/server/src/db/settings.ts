@@ -1,5 +1,5 @@
 import type { Db } from './database.js';
-import type { BrowserMode, SessionState } from '../domain/types.js';
+import type { BrowserMode, NotifyMode, SessionState } from '../domain/types.js';
 
 export interface Settings {
   // ---- Editables desde el panel ----
@@ -22,6 +22,10 @@ export interface Settings {
   maxBackoffMinutes: number;
   /** Publicaciones a leer por corrida (más = más scroll en Facebook). */
   maxResultsPerRun: number;
+  /** Qué resultados generan un aviso de Windows. */
+  notifyMode: NotifyMode;
+  /** El usuario aceptó el aviso de riesgos del primer arranque (pantalla de bienvenida). */
+  riskNoticeAccepted: boolean;
 
   // ---- Estado interno (solo lectura desde la API) ----
   /** Estado de la sesión de Facebook según la última corrida o login. */
@@ -41,6 +45,8 @@ export const DEFAULT_SETTINGS: Settings = {
   errorBackoffMinutes: 15,
   maxBackoffMinutes: 240,
   maxResultsPerRun: 60,
+  notifyMode: 'all',
+  riskNoticeAccepted: false,
   sessionState: 'unknown',
   pausedUntil: null,
 };

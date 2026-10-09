@@ -29,9 +29,14 @@ export interface BotStatus {
   nextRun: { watcherId: number; name: string; at: string } | null;
 }
 
+/** Resumen de una corrida, indicando si la pidió el usuario ("Probar ahora") o fue automática. */
+export interface FinishedRun extends RunSummary {
+  manual: boolean;
+}
+
 export interface BotEvents {
   'run:started': [{ watcherId: number }];
-  'run:finished': [RunSummary];
+  'run:finished': [FinishedRun];
   'session:changed': [SessionState];
 }
 
@@ -110,21 +115,21 @@ export class Bot extends EventEmitter<BotEvents> {
    * Revisa si toca correr alguna búsqueda e inicia como máximo una.
    * Devuelve la promesa de la corrida iniciada (útil en tests) o el motivo del bloqueo.
    */
-  async tick(): Promise<{ started: Promise<RunSummary> } | { blocked: BlockedReason | 'nothing_due' }> {
+  async tick(): Promise<{ started: Promise<FinishedRun> } | { blocked: BlockedReason | 'nothing_due' }> {
     // Mientras una corrida dura (minutos), no hace falta consultar la base en cada ciclo.
     if (this.isBusy()) return { blocked: 'busy' };
     const blocked = this.blockedReason();
     if (blocked) return { blocked };
     const [due] = this.store.watchers.due(this.now().toISOString());
     if (!due) return { blocked: 'nothing_due' };
-    return { started: this.enqueueRun(due) };
+    return { started: this.enqueueRun(due, false) };
   }
 
   /** "Probar ahora": ignora horario y límites (es una acción explícita del usuario), pero usa la cola. */
-  runNow(watcherId: number): Promise<RunSummary> | null {
+  runNow(watcherId: number): Promise<FinishedRun> | null {
     const w = this.store.watchers.get(watcherId);
     if (!w || this.queue.has(watcherJob(w.id))) return null;
-    return this.enqueueRun(w);
+    return this.enqueueRun(w, true);
   }
 
   isQueued(watcherId: number): boolean {
@@ -191,15 +196,16 @@ export class Bot extends EventEmitter<BotEvents> {
     this.store.watchers.setSchedule(w.id, next.toISOString(), 0);
   }
 
-  private enqueueRun(w: Watcher): Promise<RunSummary> {
+  private enqueueRun(w: Watcher, manual: boolean): Promise<FinishedRun> {
     return this.queue.run(watcherJob(w.id), async () => {
       // Releer por si el usuario la editó mientras esperaba en la cola.
       const watcher = this.store.watchers.get(w.id) ?? w;
       this.emit('run:started', { watcherId: watcher.id });
       const summary = await runWatcher(this.store, this.scraper, watcher, { now: this.now });
       this.afterRun(watcher, summary);
-      this.emit('run:finished', summary);
-      return summary;
+      const finished = { ...summary, manual };
+      this.emit('run:finished', finished);
+      return finished;
     });
   }
 

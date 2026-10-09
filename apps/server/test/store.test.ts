@@ -117,3 +117,18 @@ test('settings: migra el antiguo "headless" a browserMode', () => {
   s2.db.prepare("INSERT INTO settings (key, value) VALUES ('headless', 'false')").run();
   assert.equal(s2.settings.get('browserMode'), 'offscreen');
 });
+
+test('matches: marcar como notificados', () => {
+  const s = createStore(':memory:');
+  const w = s.watchers.create(watcherInput());
+  const ids = ['1', '2', '3'].map((id) => {
+    s.listings.upsert(makeListing({ id }));
+    return s.matches.upsert(w.id, id, ev()).id;
+  });
+  s.matches.markNotified(ids.slice(0, 2), '2026-10-09T12:00:00.000Z');
+  s.matches.markNotified([]);
+  assert.deepEqual(
+    ids.map((id) => s.matches.get(id)!.notifiedAt),
+    ['2026-10-09T12:00:00.000Z', '2026-10-09T12:00:00.000Z', null],
+  );
+});

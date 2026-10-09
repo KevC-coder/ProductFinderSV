@@ -23,6 +23,12 @@ const FIELD_LABELS: Record<string, string> = {
   active: 'Activa',
   status: 'Estado',
   browserMode: 'Modo del navegador',
+  notifyMode: 'Notificaciones',
+  riskNoticeAccepted: 'Aviso de riesgos',
+  enabled: 'Activado',
+  watchers: 'Búsquedas',
+  format: 'Formato del archivo',
+  version: 'Versión del archivo',
 };
 
 function fieldName(e: FastifySchemaValidationError): string {
@@ -49,6 +55,10 @@ function describeValidationError(e: FastifySchemaValidationError): string {
       return `${f}: es demasiado largo (máximo ${e.params.limit} caracteres).`;
     case 'maxItems':
       return `${f}: demasiados elementos (máximo ${e.params.limit}).`;
+    case 'minItems':
+      return `${f}: está vacío.`;
+    case 'const':
+      return `${f}: no corresponde a ProductFinderSV.`;
     case 'uniqueItems':
       return `${f}: hay elementos repetidos.`;
     case 'pattern':
@@ -64,11 +74,18 @@ function describeValidationError(e: FastifySchemaValidationError): string {
   }
 }
 
+/** Al importar, los errores llegan como "/watchers/2/name": se indica qué búsqueda falló. */
+function describeError(e: FastifySchemaValidationError): string {
+  const m = /^\/watchers\/(\d+)(\/.*)?$/.exec(e.instancePath);
+  if (!m) return describeValidationError(e);
+  return `Búsqueda ${Number(m[1]) + 1}: ${describeValidationError({ ...e, instancePath: m[2] ?? '' })}`;
+}
+
 /** Respuestas de error uniformes: { error: "mensaje en español" }. */
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err.validation?.length) {
-      return reply.code(400).send({ error: describeValidationError(err.validation[0]!) });
+      return reply.code(400).send({ error: describeError(err.validation[0]!) });
     }
     if (err.statusCode && err.statusCode < 500) {
       return reply.code(err.statusCode).send({ error: err.message });

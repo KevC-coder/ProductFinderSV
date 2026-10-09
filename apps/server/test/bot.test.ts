@@ -187,3 +187,16 @@ test('status informa la próxima corrida', () => {
   assert.equal(s.blockedReason, null);
   assert.equal(s.runsLastHour, 0);
 });
+
+test('el evento de corrida terminada indica si fue "Probar ahora" o automática', async () => {
+  const { bot, c, addWatcher } = setup();
+  const w = addWatcher();
+  const seen: boolean[] = [];
+  bot.on('run:finished', (s) => seen.push(s.manual));
+
+  const manual = await bot.runNow(w.id);
+  assert.equal(manual?.manual, true);
+  c.advance(200); // después de la próxima corrida programada
+  await tickAndWait(bot);
+  assert.deepEqual(seen, [true, false]);
+});

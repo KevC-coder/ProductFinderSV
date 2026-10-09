@@ -25,6 +25,15 @@ export type BrowserMode = (typeof BROWSER_MODES)[number];
 
 export type SessionState = 'connected' | 'logged_out' | 'checkpoint';
 
+/**
+ * Avisos de Windows al terminar una búsqueda automática.
+ * all   → resultados nuevos y bajadas de precio.
+ * ideal → solo los que están en el precio ideal de la búsqueda.
+ * off   → sin avisos (el panel sigue mostrando todo).
+ */
+export const NOTIFY_MODES = ['all', 'ideal', 'off'] as const;
+export type NotifyMode = (typeof NOTIFY_MODES)[number];
+
 /** Una búsqueda guardada que el bot ejecuta periódicamente. */
 export interface Watcher {
   id: number;

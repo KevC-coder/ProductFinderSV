@@ -9,6 +9,7 @@ import type {
   Status,
   Watcher,
   WatcherInput,
+  WatchersExport,
   WatcherWithStats,
 } from './types';
 
@@ -49,12 +50,16 @@ export const api = {
   connectSession: () => request<{ queued: boolean }>('POST', '/api/session/connect'),
   resume: () => request<Status>('POST', '/api/scheduler/resume'),
   shutdown: () => request<{ stopping: boolean }>('POST', '/api/system/shutdown'),
+  autostart: () => request<{ enabled: boolean }>('GET', '/api/system/autostart'),
+  setAutostart: (enabled: boolean) => request<{ enabled: boolean }>('PUT', '/api/system/autostart', { enabled }),
 
   watchers: () => request<WatcherWithStats[]>('GET', '/api/watchers'),
   createWatcher: (w: WatcherInput) => request<Watcher>('POST', '/api/watchers', w),
   updateWatcher: (id: number, patch: Partial<WatcherInput>) => request<Watcher>('PATCH', `/api/watchers/${id}`, patch),
   deleteWatcher: (id: number) => request<void>('DELETE', `/api/watchers/${id}`),
   runWatcher: (id: number) => request<RunSummary>('POST', `/api/watchers/${id}/run?wait=true`),
+  exportWatchers: () => request<WatchersExport>('GET', '/api/watchers/export'),
+  importWatchers: (file: unknown) => request<{ imported: number; watchers: Watcher[] }>('POST', '/api/watchers/import', file),
 
   matches: (f: MatchFilter) => request<{ items: Match[]; total: number }>('GET', `/api/matches${query(f)}`),
   setMatchStatus: (id: number, status: MatchStatus) => request<Match>('PATCH', `/api/matches/${id}`, { status }),
@@ -63,5 +68,6 @@ export const api = {
 
   runs: (limit = 100) => request<Run[]>('GET', `/api/runs${query({ limit })}`),
   settings: () => request<Settings>('GET', '/api/settings'),
-  updateSettings: (patch: Partial<EditableSettings>) => request<Settings>('PATCH', '/api/settings', patch),
+  updateSettings: (patch: Partial<EditableSettings & Pick<Settings, 'riskNoticeAccepted'>>) =>
+    request<Settings>('PATCH', '/api/settings', patch),
 };

@@ -1,5 +1,5 @@
-import { Clock, Pencil, Play, Plus, Search, Trash2 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { Clock, Download, Pencil, Play, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useToast } from '../components/Toasts';
 import { WatcherForm } from '../components/WatcherForm';
 import {
@@ -19,7 +19,8 @@ import {
   type Tone,
 } from '../components/ui';
 import { formatPrice, plural, relativeTime, RUN_STATUS_LABELS, RUN_STATUS_TONE } from '../lib/format';
-import { navigate, useDeleteWatcher, useRunWatcher, useSaveWatcher, useWatchers } from '../lib/hooks';
+import { api } from '../lib/api';
+import { navigate, useDeleteWatcher, useImportWatchers, useRunWatcher, useSaveWatcher, useWatchers } from '../lib/hooks';
 import type { Watcher, WatcherWithStats } from '../lib/types';
 
 function priceSummary(w: Watcher): string | null {
@@ -164,11 +165,93 @@ function WatcherCard({
   );
 }
 
-export function Watchers() {
+/** Descarga las búsquedas como archivo JSON para compartirlas con amigos. */
+async function downloadExport(): Promise<number> {
+  const data = await api.exportWatchers();
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  // Fecha local (AAAA-MM-DD), no la UTC de exportedAt.
+  a.download = `productfindersv-busquedas-${new Date().toLocaleDateString('en-CA')}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return data.watchers.length;
+}
+
+/** Botones Importar / Exportar: compartir búsquedas entre instalaciones (solo criterios, sin resultados). */
+function ShareActions({ canExport }: { canExport: boolean }) {
+  const toast = useToast();
+  const importer = useImportWatchers();
+  const [exporting, setExporting] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    let data: unknown;
+    try {
+      data = JSON.parse(await file.text());
+    } catch {
+      toast({ tone: 'error', title: 'No se pudo leer el archivo', body: 'Elige un archivo .json exportado desde ProductFinderSV.' });
+      return;
+    }
+    importer.mutate(data, {
+      onSuccess: ({ imported }) =>
+        toast({
+          tone: 'success',
+          title: `${plural(imported, 'búsqueda')} ${imported === 1 ? 'importada' : 'importadas'}`,
+          body: 'Revisa precios y horarios antes de que el bot las ejecute.',
+        }),
+      onError: (e) => toast({ tone: 'error', title: 'No se pudo importar', body: e.message }),
+    });
+  };
+
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const n = await downloadExport();
+      toast({ tone: 'success', title: `${plural(n, 'búsqueda')} ${n === 1 ? 'exportada' : 'exportadas'}`, body: 'El archivo está en tu carpeta de descargas.' });
+    } catch (e) {
+      toast({ tone: 'error', title: 'No se pudo exportar', body: (e as Error).message });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(e) => {
+          void onFile(e.target.files?.[0]);
+          e.target.value = ''; // permite volver a elegir el mismo archivo
+        }}
+      />
+      <Button icon={<Upload className="size-4" />} onClick={() => fileInput.current?.click()} loading={importer.isPending}>
+        Importar
+      </Button>
+      {canExport && (
+        <Button icon={<Download className="size-4" />} onClick={() => void onExport()} loading={exporting}>
+          Exportar
+        </Button>
+      )}
+    </>
+  );
+}
+
+export function Watchers({ params }: { params: URLSearchParams }) {
   const watchers = useWatchers();
   const remove = useDeleteWatcher();
-  const [editing, setEditing] = useState<Watcher | null | 'new'>(null);
+  // ?nueva=1 abre el formulario directamente (desde Inicio, "Crear búsqueda").
+  const [editing, setEditing] = useState<Watcher | null | 'new'>(params.has('nueva') ? 'new' : null);
   const [deleting, setDeleting] = useState<Watcher | null>(null);
+
+  const closeForm = () => {
+    setEditing(null);
+    if (params.has('nueva')) navigate('busquedas');
+  };
 
   return (
     <>
@@ -177,9 +260,12 @@ export function Watchers() {
         title="Búsquedas"
         subtitle="Define qué producto buscar, a qué precio y cada cuánto."
         actions={
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
-            Nueva búsqueda
-          </Button>
+          <>
+            <ShareActions canExport={!!watchers.data?.length} />
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+              Nueva búsqueda
+            </Button>
+          </>
         }
       />
 
@@ -191,6 +277,7 @@ export function Watchers() {
           <Button variant="primary" className="mt-4" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
             Crear la primera
           </Button>
+          <p className="mt-3 text-xs">¿Un amigo te compartió sus búsquedas? Usa “Importar” con su archivo .json.</p>
         </EmptyState>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -210,7 +297,7 @@ export function Watchers() {
         <WatcherForm
           key={editing === 'new' ? 'new' : editing.id}
           watcher={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
+          onClose={closeForm}
         />
       )}
       <ConfirmDialog
