@@ -4,7 +4,6 @@ import { useToast, type ToastInput } from '../components/Toasts';
 import { api } from './api';
 import { plural } from './format';
 import type {
-  EditableSettings,
   Match,
   MatchFilter,
   MatchStatus,
@@ -98,10 +97,33 @@ export function useRunWatcher() {
   });
 }
 
+/** Importa un archivo de búsquedas exportado (desde esta app o la de un amigo). */
+export function useImportWatchers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.importWatchers,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['watchers'] });
+      void qc.invalidateQueries({ queryKey: ['status'] });
+    },
+  });
+}
+
+/** Inicio automático con Windows (solo en la app de escritorio). */
+export function useAutostart(enabled: boolean) {
+  const qc = useQueryClient();
+  const query = useQuery({ queryKey: ['autostart'], queryFn: api.autostart, enabled });
+  const update = useMutation({
+    mutationFn: api.setAutostart,
+    onSuccess: (saved) => qc.setQueryData(['autostart'], saved),
+  });
+  return { query, update };
+}
+
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<EditableSettings>) => api.updateSettings(patch),
+    mutationFn: (patch: Parameters<typeof api.updateSettings>[0]) => api.updateSettings(patch),
     onSuccess: (saved) => {
       qc.setQueryData(['settings'], saved);
       void qc.invalidateQueries({ queryKey: ['status'] });

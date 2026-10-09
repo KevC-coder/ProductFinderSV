@@ -45,7 +45,7 @@ function Onboarding({ connected, hasWatchers }: { connected: boolean; hasWatcher
       title: 'Crea tu primera búsqueda',
       text: 'El producto, tu rango de precio, el precio ideal y las palabras clave.',
       action: (
-        <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} onClick={() => navigate('busquedas')}>
+        <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} onClick={() => navigate('busquedas', { nueva: 1 })}>
           Crear búsqueda
         </Button>
       ),

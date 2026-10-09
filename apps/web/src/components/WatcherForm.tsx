@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CONDITION_LABELS } from '../lib/format';
 import { useSaveWatcher } from '../lib/hooks';
 import type { ItemCondition, Watcher, WatcherInput } from '../lib/types';
@@ -61,26 +61,21 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
+/**
+ * Se monta al abrirse (con una key por búsqueda) y toma los datos iniciales una sola vez:
+ * así los refrescos de la lista mientras se edita no borran lo que el usuario escribió.
+ */
 export function WatcherForm({
-  open,
   watcher,
   onClose,
 }: {
-  open: boolean;
   /** null = crear una nueva. */
   watcher: Watcher | null;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState<WatcherInput>(EMPTY_WATCHER);
+  const [form, setForm] = useState<WatcherInput>(() => (watcher ? toInput(watcher) : EMPTY_WATCHER));
   const [error, setError] = useState<string | null>(null);
   const save = useSaveWatcher();
-
-  useEffect(() => {
-    if (open) {
-      setForm(watcher ? toInput(watcher) : EMPTY_WATCHER);
-      setError(null);
-    }
-  }, [open, watcher]);
 
   const set = <K extends keyof WatcherInput>(key: K, value: WatcherInput[K]) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -105,7 +100,7 @@ export function WatcherForm({
 
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
       wide
       eyebrow={watcher ? 'Editar criterios' : 'Nuevos criterios'}

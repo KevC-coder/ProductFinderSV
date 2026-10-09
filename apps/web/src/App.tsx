@@ -4,8 +4,9 @@ import { Isotipo } from './components/brand/Isotipo';
 import { Logo } from './components/brand/Logo';
 import { botHeadline, isSearching, sessionTone } from './components/BotStatusCard';
 import { cx, Dot, Spinner } from './components/ui';
+import { Welcome } from './components/Welcome';
 import { SESSION_LABELS } from './lib/format';
-import { useHashRoute, useLiveEvents, useStatus, type Route } from './lib/hooks';
+import { useHashRoute, useLiveEvents, useSettings, useStatus, type Route } from './lib/hooks';
 import { useTheme, type Theme } from './lib/theme';
 import { Activity } from './pages/Activity';
 import { Overview } from './pages/Overview';
@@ -54,6 +55,7 @@ function ThemeSwitch() {
 export function App() {
   const { route, params } = useHashRoute();
   const status = useStatus();
+  const settings = useSettings();
   const live = useLiveEvents();
 
   const newCount = status.data?.matches.new ?? 0;
@@ -81,6 +83,9 @@ export function App() {
         </a>
       );
     });
+
+  // Primer arranque: el aviso de riesgos se acepta antes de usar el panel.
+  if (settings.data && !settings.data.riskNoticeAccepted) return <Welcome />;
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[248px_1fr]">
@@ -139,7 +144,7 @@ export function App() {
         )}
         {route === 'inicio' && <Overview />}
         {route === 'resultados' && <Results params={params} />}
-        {route === 'busquedas' && <Watchers />}
+        {route === 'busquedas' && <Watchers params={params} />}
         {route === 'actividad' && <Activity />}
         {route === 'ajustes' && <Settings />}
       </main>

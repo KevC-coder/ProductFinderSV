@@ -1,21 +1,28 @@
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import { transaction } from '../db/database.js';
 import type { MatchFilter } from '../db/matches.js';
 import type { Settings } from '../db/settings.js';
 import type { Store } from '../db/store.js';
-import type { MatchStatus, WatcherInput } from '../domain/types.js';
+import type { Autostart } from '../desktop/autostart.js';
+import type { MatchStatus, Watcher, WatcherInput } from '../domain/types.js';
 import type { Bot } from '../scheduler/bot.js';
 import { APP_VERSION, VERSION_HEADER } from '../version.js';
 import { registerErrorHandler } from './errors.js';
 import { registerEvents } from './events.js';
 import {
+  autostartBody,
   createWatcherBody,
+  EXPORT_FORMAT,
+  EXPORT_VERSION,
   idParams,
+  importWatchersBody,
   matchesQuery,
   patchMatchBody,
   patchSettingsBody,
   patchWatcherBody,
   runsQuery,
+  WATCHER_FIELDS,
 } from './schemas.js';
 
 export interface AppDeps {
@@ -26,6 +33,8 @@ export interface AppDeps {
   onShutdown?: () => Promise<void>;
   /** Carpeta con el panel compilado (apps/web/dist). Sin ella solo se sirve la API. */
   webDir?: string;
+  /** Solo en la app de escritorio (Windows): integración con el sistema. */
+  desktop?: { autostart: Autostart };
 }
 
 /** Sirve el panel y devuelve index.html para cualquier ruta que no sea de la API. */
@@ -39,6 +48,11 @@ function registerWeb(app: FastifyInstance, webDir: string): void {
 
 type IdParams = { Params: { id: number } };
 
+/** Solo los campos editables: lo que se comparte al exportar una búsqueda. */
+function toInput(w: Watcher): WatcherInput {
+  return Object.fromEntries(WATCHER_FIELDS.map((k) => [k, w[k]])) as unknown as WatcherInput;
+}
+
 function invalidPriceRange(w: Partial<WatcherInput>): string | null {
   if (w.minPrice != null && w.maxPrice != null && w.minPrice > w.maxPrice) {
     return 'El precio mínimo no puede ser mayor que el máximo';
@@ -46,7 +60,7 @@ function invalidPriceRange(w: Partial<WatcherInput>): string | null {
   return null;
 }
 
-export function buildApp({ store, bot, logger = false, webDir, onShutdown }: AppDeps): FastifyInstance {
+export function buildApp({ store, bot, logger = false, webDir, onShutdown, desktop }: AppDeps): FastifyInstance {
   // removeAdditional: false → los campos desconocidos dan 400 en vez de ignorarse en silencio.
   // forceCloseConnections: al cerrar se cortan también las conexiones abiertas (como la de
   // eventos en vivo del panel); si no, el cierre esperaría para siempre.
@@ -65,6 +79,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown }: App
   app.get('/api/status', async () => ({
     version: APP_VERSION,
     canShutdown: !!onShutdown,
+    desktop: !!desktop,
     ...bot.status(),
     activeWatchers: store.watchers.countActive(),
     matches: store.matches.countByStatus(),
@@ -87,6 +102,19 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown }: App
         return reply.code(202).send({ stopping: true });
       });
     });
+  }
+
+  if (desktop) {
+    /** Inicio automático con Windows (al iniciar sesión, en segundo plano). */
+    app.get('/api/system/autostart', async () => ({ enabled: await desktop.autostart.isEnabled() }));
+    app.put<{ Body: { enabled: boolean } }>(
+      '/api/system/autostart',
+      { schema: { body: autostartBody } },
+      async (req) => {
+        await desktop.autostart.setEnabled(req.body.enabled);
+        return { enabled: await desktop.autostart.isEnabled() };
+      },
+    );
   }
 
   /** Quita la pausa automática por checkpoint. */
@@ -113,6 +141,29 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown }: App
     bot.onWatcherSaved(created);
     return reply.code(201).send(store.watchers.get(created.id));
   });
+
+  /** Archivo para compartir búsquedas con amigos (solo criterios: sin resultados ni historial). */
+  app.get('/api/watchers/export', async () => ({
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    watchers: store.watchers.list().map(toInput),
+  }));
+
+  /** Crea búsquedas a partir de un archivo exportado. Todas o ninguna. */
+  app.post<{ Body: { watchers: WatcherInput[] } }>(
+    '/api/watchers/import',
+    { schema: { body: importWatchersBody } },
+    async (req, reply) => {
+      for (const [i, w] of req.body.watchers.entries()) {
+        const error = invalidPriceRange(w);
+        if (error) return reply.code(400).send({ error: `Búsqueda ${i + 1}: ${error}.` });
+      }
+      const created = transaction(store.db, () => req.body.watchers.map((w) => store.watchers.create(w)));
+      for (const w of created) bot.onWatcherSaved(w);
+      return reply.code(201).send({ imported: created.length, watchers: created.map((w) => store.watchers.get(w.id)) });
+    },
+  );
 
   app.get<IdParams>('/api/watchers/:id', { schema: { params: idParams } }, async (req, reply) => {
     const w = store.watchers.get(req.params.id);

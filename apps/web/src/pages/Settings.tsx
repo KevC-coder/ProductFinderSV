@@ -6,8 +6,8 @@ import { useToast } from '../components/Toasts';
 import { Badge, Button, Card, ConfirmDialog, cx, Dot, ErrorNote, Field, NumberInput, PageHeader, PageLoader, Toggle } from '../components/ui';
 import { api } from '../lib/api';
 import { formatDateTime, SESSION_LABELS } from '../lib/format';
-import { useConnectSession, useSettings, useStatus } from '../lib/hooks';
-import type { BrowserMode, EditableSettings } from '../lib/types';
+import { useAutostart, useConnectSession, useSettings, useStatus } from '../lib/hooks';
+import type { BrowserMode, EditableSettings, NotifyMode, Settings as SettingsData } from '../lib/types';
 
 const DEFAULTS: EditableSettings = {
   schedulerEnabled: true,
@@ -20,7 +20,14 @@ const DEFAULTS: EditableSettings = {
   errorBackoffMinutes: 15,
   maxBackoffMinutes: 240,
   maxResultsPerRun: 60,
+  notifyMode: 'all',
 };
+
+/** Separa lo editable en esta pantalla del estado que maneja el bot. */
+function editableOf(s: SettingsData): EditableSettings {
+  const { sessionState: _s, pausedUntil: _p, riskNoticeAccepted: _r, ...editable } = s;
+  return editable;
+}
 
 type NumericKey = { [K in keyof EditableSettings]: EditableSettings[K] extends number ? K : never }[keyof EditableSettings];
 
@@ -36,7 +43,14 @@ const NUMERIC: Record<NumericKey, { label: string; hint: string; suffix: string;
   maxBackoffMinutes: { label: 'Espera máxima tras errores', hint: 'Tope de la espera creciente.', suffix: 'min', min: 15, max: 1440 },
 };
 
-const BROWSER_MODES: { value: BrowserMode; title: string; text: string; recommended?: boolean }[] = [
+interface Choice<T extends string> {
+  value: T;
+  title: string;
+  text: string;
+  recommended?: boolean;
+}
+
+const BROWSER_MODES: Choice<BrowserMode>[] = [
   {
     value: 'offscreen',
     title: 'Fuera de pantalla',
@@ -55,14 +69,46 @@ const BROWSER_MODES: { value: BrowserMode; title: string; text: string; recommen
   },
 ];
 
-/** Selector del modo del navegador: tarjetas de opción con la recomendada marcada. */
-function BrowserModePicker({ value, onChange }: { value: BrowserMode; onChange: (v: BrowserMode) => void }) {
+const NOTIFY_MODES: Choice<NotifyMode>[] = [
+  {
+    value: 'all',
+    title: 'Resultados nuevos y bajadas de precio',
+    text: 'Un aviso por búsqueda cuando encuentra algo nuevo, con el resultado de mayor puntuación.',
+  },
+  {
+    value: 'ideal',
+    title: 'Solo precio ideal',
+    text: 'Solo lo que está en el precio ideal de la búsqueda o por debajo. Las búsquedas sin precio ideal no avisan.',
+  },
+  {
+    value: 'off',
+    title: 'Sin avisos',
+    text: 'Los resultados se ven solo en el panel.',
+  },
+];
+
+/** Opciones excluyentes en tarjetas, con la recomendada marcada. */
+function ChoiceList<T extends string>({
+  name,
+  legend,
+  hint,
+  options,
+  value,
+  onChange,
+}: {
+  name: string;
+  legend: string;
+  hint?: string;
+  options: Choice<T>[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
   return (
     <fieldset>
-      <legend className="text-sm font-semibold">Ventana del navegador al buscar</legend>
-      <p className="mt-0.5 text-xs text-muted">El inicio de sesión en Facebook siempre se abre en una ventana visible.</p>
+      <legend className="text-sm font-semibold">{legend}</legend>
+      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
       <div className="mt-3 space-y-2">
-        {BROWSER_MODES.map((m) => {
+        {options.map((m) => {
           const checked = value === m.value;
           return (
             <label
@@ -74,7 +120,7 @@ function BrowserModePicker({ value, onChange }: { value: BrowserMode; onChange: 
             >
               <input
                 type="radio"
-                name="browserMode"
+                name={name}
                 value={m.value}
                 checked={checked}
                 onChange={() => onChange(m.value)}
@@ -114,18 +160,17 @@ export function Settings() {
   const [form, setForm] = useState<EditableSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const desktop = !!status.data?.desktop;
+  const autostart = useAutostart(desktop);
+
   useEffect(() => {
-    if (settings.data && !form) {
-      const { sessionState: _s, pausedUntil: _p, ...editable } = settings.data;
-      setForm(editable);
-    }
+    if (settings.data && !form) setForm(editableOf(settings.data));
   }, [settings.data, form]);
 
   const save = useMutation({
     mutationFn: (patch: Partial<EditableSettings>) => api.updateSettings(patch),
     onSuccess: (saved) => {
-      const { sessionState: _s, pausedUntil: _p, ...editable } = saved;
-      setForm(editable);
+      setForm(editableOf(saved));
       setError(null);
       void qc.invalidateQueries();
       toast({ tone: 'success', title: 'Ajustes guardados' });
@@ -152,7 +197,8 @@ export function Settings() {
     );
   }
 
-  const { sessionState: _s, pausedUntil, ...saved } = settings.data;
+  const { pausedUntil } = settings.data;
+  const saved = editableOf(settings.data);
   const changed = (Object.keys(form) as (keyof EditableSettings)[]).filter((k) => form[k] !== saved[k]);
   const set = <K extends keyof EditableSettings>(k: K, v: EditableSettings[K]) => setForm({ ...form, [k]: v });
 
@@ -178,7 +224,10 @@ export function Settings() {
         subtitle="Cómo y cuánto busca el bot. Valores más conservadores = menos riesgo para tu cuenta."
         actions={
           <>
-            <Button icon={<RotateCcw className="size-4" />} onClick={() => setForm({ ...DEFAULTS, schedulerEnabled: form.schedulerEnabled })}>
+            <Button
+              icon={<RotateCcw className="size-4" />}
+              onClick={() => setForm({ ...DEFAULTS, schedulerEnabled: form.schedulerEnabled, notifyMode: form.notifyMode })}
+            >
               Valores recomendados
             </Button>
             <Button
@@ -208,7 +257,7 @@ export function Settings() {
             Se abre una ventana de Microsoft Edge con el perfil de la app para que inicies sesión. La app nunca ve ni guarda tu
             contraseña. Te recomendamos usar una cuenta secundaria.
           </p>
-          <Button icon={<LogIn className="size-4" />} onClick={() => connect.mutate()} loading={connect.isPending || status.data?.queue.active === 'login'}>
+          <Button icon={<LogIn className="size-4" />} onClick={() => connect.mutate()} loading={connect.isPending || status.data?.loggingIn}>
             {sessionState === 'connected' ? 'Volver a iniciar sesión' : 'Conectar Facebook'}
           </Button>
           {paused && (
@@ -228,7 +277,27 @@ export function Settings() {
             label="Búsquedas automáticas"
             description="Apágalo para que el bot no busque solo. “Probar ahora” sigue funcionando."
           />
-          <BrowserModePicker value={form.browserMode} onChange={(v) => set('browserMode', v)} />
+          <ChoiceList
+            name="browserMode"
+            legend="Ventana del navegador al buscar"
+            hint="El inicio de sesión en Facebook siempre se abre en una ventana visible."
+            options={BROWSER_MODES}
+            value={form.browserMode}
+            onChange={(v) => set('browserMode', v)}
+          />
+        </Section>
+
+        <Section
+          title="Notificaciones"
+          description="Avisos de Windows cuando una búsqueda automática termina. Al hacer clic se abren sus resultados. “Probar ahora” no avisa: el resultado ya se ve en el panel."
+        >
+          <ChoiceList
+            name="notifyMode"
+            legend="Avisarme de"
+            options={NOTIFY_MODES}
+            value={form.notifyMode}
+            onChange={(v) => set('notifyMode', v)}
+          />
         </Section>
 
         <Section title="Frecuencia y límites" description="Protegen tu cuenta: Facebook puede bloquear patrones demasiado frecuentes.">
@@ -250,6 +319,19 @@ export function Settings() {
             <dt className="label-tech self-center text-muted">Versión</dt>
             <dd className="font-mono">{status.data?.version ?? '—'}</dd>
           </dl>
+          {desktop && (
+            <Toggle
+              checked={autostart.query.data?.enabled ?? false}
+              disabled={!autostart.query.data || autostart.update.isPending}
+              onChange={(enabled) =>
+                autostart.update.mutate(enabled, {
+                  onError: (e) => toast({ tone: 'error', title: 'No se pudo cambiar el inicio con Windows', body: e.message }),
+                })
+              }
+              label="Iniciar con Windows"
+              description="ProductFinderSV arranca en segundo plano al iniciar sesión, con su icono junto al reloj. Si lo apagas, el bot solo busca mientras esté abierto."
+            />
+          )}
           {status.data?.canShutdown && (
             <div>
               <Button icon={<Power className="size-4" />} onClick={() => setConfirmClose(true)}>

@@ -1,5 +1,5 @@
 /** JSON Schemas de entrada. Fastify los valida y aplica los valores por defecto. */
-import { BROWSER_MODES, ITEM_CONDITIONS, KEYWORD_MODES, MATCH_SORTS, MATCH_STATUSES } from '../domain/types.js';
+import { BROWSER_MODES, ITEM_CONDITIONS, KEYWORD_MODES, MATCH_SORTS, MATCH_STATUSES, NOTIFY_MODES } from '../domain/types.js';
 
 const keywordList = {
   type: 'array',
@@ -45,6 +45,9 @@ const withoutDefaults = Object.fromEntries(
   ]),
 );
 
+/** Campos editables de una búsqueda (los que se exportan e importan). */
+export const WATCHER_FIELDS = Object.keys(watcherProps) as (keyof typeof watcherProps)[];
+
 export const createWatcherBody = {
   type: 'object',
   required: ['name', 'query'],
@@ -57,6 +60,30 @@ export const patchWatcherBody = {
   additionalProperties: false,
   minProperties: 1,
   properties: withoutDefaults,
+} as const;
+
+/** Identifica los archivos de búsquedas exportadas (para compartirlas entre amigos). */
+export const EXPORT_FORMAT = 'productfindersv/busquedas';
+export const EXPORT_VERSION = 1;
+
+/** Acepta el archivo exportado tal cual ({ format, version, exportedAt, watchers }). */
+export const importWatchersBody = {
+  type: 'object',
+  required: ['watchers'],
+  additionalProperties: false,
+  properties: {
+    format: { type: 'string', const: EXPORT_FORMAT },
+    version: { type: 'integer', minimum: 1, maximum: EXPORT_VERSION },
+    exportedAt: { type: 'string' },
+    watchers: { type: 'array', minItems: 1, maxItems: 100, items: createWatcherBody },
+  },
+} as const;
+
+export const autostartBody = {
+  type: 'object',
+  required: ['enabled'],
+  additionalProperties: false,
+  properties: { enabled: { type: 'boolean' } },
 } as const;
 
 export const idParams = {
@@ -110,5 +137,7 @@ export const patchSettingsBody = {
     errorBackoffMinutes: { type: 'integer', minimum: 5, maximum: 240 },
     maxBackoffMinutes: { type: 'integer', minimum: 15, maximum: 1440 },
     maxResultsPerRun: { type: 'integer', minimum: 10, maximum: 200 },
+    notifyMode: { type: 'string', enum: NOTIFY_MODES },
+    riskNoticeAccepted: { type: 'boolean' },
   },
 } as const;

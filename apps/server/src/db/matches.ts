@@ -162,6 +162,14 @@ export class MatchRepo {
     return Number(changes) > 0;
   }
 
+  /** Registra que se avisó al usuario (aviso de Windows) de estos resultados. */
+  markNotified(ids: number[], now = new Date().toISOString()): void {
+    if (!ids.length) return;
+    this.db
+      .prepare(`UPDATE matches SET notified_at = ? WHERE id IN (${ids.map(() => '?').join(', ')})`)
+      .run(now, ...ids);
+  }
+
   setStatus(id: number, status: MatchStatus, now = new Date().toISOString()): MatchView | null {
     this.db.prepare('UPDATE matches SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
     return this.get(id);

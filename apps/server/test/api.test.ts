@@ -203,3 +203,92 @@ test('status, ajustes del bot y reanudar', async () => {
   const resumed = (await app.inject({ method: 'POST', url: '/api/scheduler/resume' })).json();
   assert.equal(resumed.pausedUntil, null);
 });
+
+test('exportar e importar búsquedas (solo criterios)', async () => {
+  const { app, store } = setup();
+  await app.inject({
+    method: 'POST',
+    url: '/api/watchers',
+    payload: { name: 'iPhone', query: 'iphone 13', excludeKeywords: ['repuesto'], idealPrice: 250, runsPerDay: 4 },
+  });
+  await app.inject({ method: 'POST', url: '/api/watchers', payload: { name: 'PS5', query: 'ps5', active: false } });
+
+  const exported = (await app.inject({ method: 'GET', url: '/api/watchers/export' })).json();
+  assert.equal(exported.format, 'productfindersv/busquedas');
+  assert.equal(exported.version, 1);
+  assert.equal(exported.watchers.length, 2);
+  // Sin datos internos: id, horario calculado, errores ni fechas.
+  assert.deepEqual(Object.keys(exported.watchers[0]).filter((k) => ['id', 'nextRunAt', 'consecutiveFailures', 'createdAt'].includes(k)), []);
+
+  // Otro PC importa el archivo tal cual.
+  const other = setup();
+  const res = await other.app.inject({ method: 'POST', url: '/api/watchers/import', payload: exported });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().imported, 2);
+  const imported = other.store.watchers.list();
+  assert.deepEqual(
+    imported.map((w) => [w.name, w.idealPrice, w.runsPerDay, w.active, w.excludeKeywords]),
+    [
+      ['iPhone', 250, 4, true, ['repuesto']],
+      ['PS5', null, 6, false, []],
+    ],
+  );
+  // Las activas quedan programadas; las pausadas no.
+  assert.ok(imported[0]!.nextRunAt);
+  assert.equal(imported[1]!.nextRunAt, null);
+  assert.equal(store.watchers.list().length, 2);
+});
+
+test('importar valida todo el archivo y no crea nada si algo falla', async () => {
+  const { app, store } = setup();
+  const post = async (payload: object) => {
+    const res = await app.inject({ method: 'POST', url: '/api/watchers/import', payload });
+    return { code: res.statusCode, error: res.json().error };
+  };
+  const ok = { name: 'a', query: 'b' };
+  assert.deepEqual(await post({ watchers: [ok, { name: 'x' }] }), { code: 400, error: 'Búsqueda 2: Falta el campo “Texto de búsqueda”.' });
+  assert.deepEqual(await post({ watchers: [ok, { ...ok, runsPerDay: 100 }] }), {
+    code: 400,
+    error: 'Búsqueda 2: Veces al día: debe ser como máximo 48.',
+  });
+  assert.deepEqual(await post({ watchers: [{ ...ok, minPrice: 500, maxPrice: 100 }] }), {
+    code: 400,
+    error: 'Búsqueda 1: El precio mínimo no puede ser mayor que el máximo.',
+  });
+  assert.equal((await post({ format: 'otra-app', watchers: [ok] })).error, 'Formato del archivo: no corresponde a ProductFinderSV.');
+  assert.equal((await post({ watchers: [] })).error, 'Búsquedas: está vacío.');
+  assert.equal(store.watchers.list().length, 0);
+});
+
+test('inicio con Windows solo en la app de escritorio', async () => {
+  const { app } = setup();
+  assert.equal((await app.inject({ method: 'GET', url: '/api/status' })).json().desktop, false);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/system/autostart' })).statusCode, 404);
+
+  let enabled = false;
+  const store = createStore(':memory:');
+  const bot = new Bot(store, fakeScraper({ listings: [] }).scraper);
+  const desktop = buildApp({
+    store,
+    bot,
+    desktop: { autostart: { isEnabled: async () => enabled, setEnabled: async (v) => void (enabled = v) } },
+  });
+  assert.equal((await desktop.inject({ method: 'GET', url: '/api/status' })).json().desktop, true);
+  assert.deepEqual((await desktop.inject({ method: 'GET', url: '/api/system/autostart' })).json(), { enabled: false });
+  const res = await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: true } });
+  assert.deepEqual(res.json(), { enabled: true });
+  assert.equal(enabled, true);
+  assert.equal((await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: 'si' } })).statusCode, 400);
+});
+
+test('ajustes de avisos y aviso de riesgos', async () => {
+  const { app } = setup();
+  const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+  assert.equal(settings.notifyMode, 'all');
+  assert.equal(settings.riskNoticeAccepted, false);
+
+  const patch = (payload: object) => app.inject({ method: 'PATCH', url: '/api/settings', payload });
+  assert.equal((await patch({ notifyMode: 'ideal', riskNoticeAccepted: true })).json().notifyMode, 'ideal');
+  assert.equal((await app.inject({ method: 'GET', url: '/api/settings' })).json().riskNoticeAccepted, true);
+  assert.equal((await patch({ notifyMode: 'siempre' })).json().error, 'Notificaciones: valor no permitido.');
+});
