@@ -1,0 +1,39 @@
+# Publica ProductFinderSV.exe en GitHub Releases al subir una etiqueta vX.Y.Z (ver README).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # El ejecutable (Node SEA) se construye en Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: La etiqueta coincide con la versión de package.json
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::La etiqueta $GITHUB_REF_NAME no coincide con package.json ($version)"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run package
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/ProductFinderSV.exe
+          generate_release_notes: true

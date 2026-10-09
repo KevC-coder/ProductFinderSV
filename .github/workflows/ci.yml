@@ -1,0 +1,25 @@
+# Verificación de cada push y pull request: tipos, tests y compilación del panel.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # pwsh viene instalado en el runner: también se revisa la sintaxis de los scripts de PowerShell.
+      - run: npm test
+      - run: npm run build
