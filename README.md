@@ -8,14 +8,17 @@ Bot local para Windows que vigila Facebook Marketplace (El Salvador, USD) y mues
 
 1. Descarga **`ProductFinderSV.exe`** de la sección [Releases](../../releases) del repositorio.
 2. Ábrelo con doble clic. Como el ejecutable no está firmado, Windows puede mostrar *"Windows protegió su PC"*: pulsa **Más información → Ejecutar de todas formas**.
-3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, y abre el panel en su propia ventana.
-4. En el panel: **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
+3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, queda en **Configuración → Aplicaciones**, se configura para **iniciar con Windows** y abre el panel en su propia ventana.
+4. En el panel: acepta el aviso de riesgos → **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
 
 Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta instalar nada más.
 
-- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano. Para detenerlo: *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
+- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano, con su icono junto al reloj de Windows (clic → abre el panel; clic derecho → ver resultados, pausar/reanudar las búsquedas automáticas o cerrar). Para detenerlo: *icono → Cerrar ProductFinderSV* o *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
+- **Inicio con Windows**: activado de fábrica; se cambia en *Ajustes → Aplicación → Iniciar con Windows*.
+- **Avisos**: cuando una búsqueda automática encuentra resultados nuevos o una bajada de precio, Windows muestra un aviso; al hacer clic se abren esos resultados. En *Ajustes → Notificaciones* eliges todos, solo precio ideal o ninguno.
+- **Compartir búsquedas**: en *Búsquedas → Exportar* se descarga un `.json` con tus criterios (sin resultados ni datos de tu cuenta); tu amigo lo carga con *Importar*.
 - **Actualizar**: descarga el nuevo `.exe` y ábrelo; reemplaza la versión anterior y conserva tus búsquedas y resultados.
-- **Desinstalar**: cierra ProductFinderSV desde Ajustes y borra `%LOCALAPPDATA%\Programs\ProductFinderSV`, los dos accesos directos y, si quieres borrar también tus datos y la sesión de Facebook, `%LOCALAPPDATA%\productFindersv`.
+- **Desinstalar**: *Configuración de Windows → Aplicaciones → ProductFinderSV → Desinstalar*. Pregunta si también quieres borrar tus datos (búsquedas, resultados y la sesión de Facebook de la app, en `%LOCALAPPDATA%\productFindersv`). Si la entrada no aparece (versiones anteriores), abre una vez el `.exe` nuevo para que se registre.
 
 ## Publicar una versión (mantenedor)
 
@@ -38,6 +41,18 @@ npm run package
 ```
 
 El resultado queda en `release/ProductFinderSV.exe`. Es un Node *Single Executable Application* con el servidor, el panel y Playwright embebidos ([apps/desktop](apps/desktop)). Al reemplazar el isotipo provisional por el oficial, regenera los iconos con `npm run icons`.
+
+Modos del ejecutable (los usa Windows; no hace falta escribirlos a mano):
+
+| Argumento | Uso |
+|---|---|
+| *(ninguno)* | Instala/actualiza, arranca el servicio y abre el panel |
+| `--background` | Igual pero sin abrir el panel (inicio con Windows) |
+| `--open productfindersv://resultados?watcher=3` | Abre una pantalla concreta (clic en un aviso) |
+| `--server` | El servicio en sí (lo lanza el propio ejecutable) |
+| `--uninstall` | Desinstalador (Configuración → Aplicaciones) |
+
+Cada push a `main` y cada pull request pasan por [ci.yml](.github/workflows/ci.yml): typecheck, tests y build.
 
 ## Requisitos (desarrollo)
 - Windows 10/11 con Microsoft Edge (ya viene instalado)
@@ -85,11 +100,12 @@ npm run start
 Abre **http://localhost:8787**: ahí se conecta Facebook, se crean búsquedas, se ven los resultados y se ajusta el bot. El servidor solo escucha en `127.0.0.1` (no es accesible desde otros equipos de la red).
 
 Pantallas del panel:
-- **Inicio** — estado del bot y de la sesión, contadores, mejores ofertas nuevas y actividad reciente.
+- **Bienvenida** (solo la primera vez) — aviso de riesgos que se acepta una vez.
+- **Inicio** — estado del bot y de la sesión, pasos para empezar, contadores, mejores ofertas nuevas y actividad reciente.
 - **Resultados** — tarjetas con foto, precio, puntuación e insignias (nuevo, precio ideal, bajó de precio, descripción sin revisar); filtros por búsqueda, estado, precio y orden; detalle con descripción e historial de precio.
-- **Búsquedas** — crear, editar, activar/pausar, "Probar ahora" y eliminar.
+- **Búsquedas** — crear, editar, activar/pausar, "Probar ahora", eliminar, exportar e importar.
 - **Actividad** — registro de cada corrida.
-- **Ajustes** — sesión de Facebook, interruptor del bot, navegador oculto, límites de frecuencia y manejo de errores.
+- **Ajustes** — sesión de Facebook, interruptor del bot, modo del navegador, notificaciones, límites de frecuencia, manejo de errores e inicio con Windows.
 
 El panel se actualiza en vivo (Server-Sent Events): avisa cuando una búsqueda termina con resultados nuevos o si Facebook pide verificación.
 
@@ -110,6 +126,8 @@ Abre http://localhost:5173 (Vite con recarga instantánea; reenvía `/api` al pu
 | GET | `/api/status` | Sesión de Facebook, cola del navegador, conteos |
 | POST | `/api/session/connect` | Abre la ventana de login de Facebook |
 | GET / POST | `/api/watchers` | Listar / crear búsquedas |
+| GET | `/api/watchers/export` | Búsquedas en JSON para compartir (solo criterios) |
+| POST | `/api/watchers/import` | Crear búsquedas desde ese JSON (todas o ninguna) |
 | GET / PATCH / DELETE | `/api/watchers/:id` | Ver / editar (parcial) / borrar |
 | POST | `/api/watchers/:id/run` | Ejecutar ya (`?wait=true` espera el resumen) |
 | GET | `/api/matches` | Resultados: `watcherId`, `status`, `minPrice`, `maxPrice`, `sort=score\|newest\|price`, `includeDuplicates`, `limit`, `offset` |
@@ -118,6 +136,8 @@ Abre http://localhost:5173 (Vite con recarga instantánea; reenvía `/api` al pu
 | GET | `/api/runs` | Registro de corridas |
 | GET / PATCH | `/api/settings` | Ajustes del bot (ver tabla abajo) |
 | POST | `/api/scheduler/resume` | Quitar la pausa automática tras una verificación de Facebook |
+| GET / PUT | `/api/system/autostart` | Inicio con Windows `{ "enabled": true }` (solo en el ejecutable) |
+| POST | `/api/system/shutdown` | Cerrar el servicio |
 | GET | `/api/events` | Eventos en vivo (SSE): `run:started`, `run:finished`, `session:changed` |
 
 Cómo filtra una búsqueda:
@@ -143,6 +163,7 @@ Ajustes globales (editables con `PATCH /api/settings`, y desde el panel en la Fa
 | `checkpointPauseHours` | 8 | Pausa total si Facebook pide verificación de seguridad |
 | `errorBackoffMinutes` / `maxBackoffMinutes` | 15 / 240 | Espera tras errores (se duplica con cada error seguido) |
 | `maxResultsPerRun` | 60 | Publicaciones a leer por corrida |
+| `notifyMode` | `all` | Avisos de Windows de las corridas automáticas: `all` (nuevos y bajadas de precio), `ideal` (solo precio ideal) u `off` |
 
 `GET /api/status` indica si el bot está bloqueado y por qué (`blockedReason`): `disabled`, `logged_out`, `paused`, `rate_limit`, `cooldown` o `busy`. "Ejecutar ahora" ignora horario y límites porque es una acción explícita del usuario.
 
@@ -151,3 +172,5 @@ Ajustes globales (editables con `PATCH /api/settings`, y desde el panel en la Fa
 ```bash
 npm test
 ```
+
+Si hay PowerShell instalado (`powershell.exe` en Windows, o `pwsh`), los tests también revisan la sintaxis de los scripts de PowerShell que generan la bandeja, los avisos y el instalador; sin PowerShell ese test se omite.
