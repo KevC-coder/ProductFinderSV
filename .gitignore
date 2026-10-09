@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+# datos locales (perfil del navegador, BD, capturas de depuración)
+data/
+# ejecutable y artefactos de empaquetado (el .exe se publica en GitHub Releases)
+release/
+apps/desktop/build/
+# configuración local del entorno de desarrollo
+.claude/

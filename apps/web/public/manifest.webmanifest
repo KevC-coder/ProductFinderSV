@@ -1,0 +1,16 @@
+{
+  "name": "ProductFinderSV",
+  "short_name": "ProductFinderSV",
+  "description": "Busca automáticamente productos en Facebook Marketplace al precio que quieres.",
+  "lang": "es",
+  "start_url": "/#/inicio",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f8f6",
+  "theme_color": "#080a09",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

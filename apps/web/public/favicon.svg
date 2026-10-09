@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Isotipo ProductFinderSV (PROVISIONAL: reemplazar por el SVG oficial). Versión simplificada para 16–32 px. -->
+  <rect width="48" height="48" rx="11" fill="#080a09"/>
+  <g fill="none" stroke="#8ef400" stroke-width="3.5" stroke-linecap="square">
+    <path d="M5 15V5H15"/><path d="M33 5H43V15"/><path d="M5 33V43H15"/><path d="M43 33V43H33"/>
+  </g>
+  <path d="M14 12H28V18H34V24L30 28H21V36H14Z M21 18V22H27V18Z" fill="#fff" fill-rule="evenodd"/>
+  <rect x="29.5" y="12" width="4.5" height="4.5" fill="#8ef400"/>
+</svg>

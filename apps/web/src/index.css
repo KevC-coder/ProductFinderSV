@@ -1,0 +1,163 @@
+@import 'tailwindcss';
+
+/*
+ * Identidad visual ProductFinderSV — ver productfindersv_guia_identidad_visual_web.md y CLAUDE.md.
+ * Los componentes usan SOLO estos tokens semánticos (bg-surface, text-muted, bg-lime…).
+ * Modo claro por defecto; el oscuro se activa con <html data-theme="dark"> o "system".
+ */
+@theme {
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  --radius-card: 14px;
+  --radius-panel: 22px;
+
+  /* Marca (iguales en ambos modos) */
+  --color-lime: #8ef400;
+  --color-lime-hover: #79d400;
+  --color-ink: #080a09; /* negro de marca: texto sobre lima */
+  --color-photo: #f4f5f2; /* contenedor claro para fotos de producto, también en oscuro */
+
+  /* Modo claro */
+  --color-bg: #f7f8f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0f2ee;
+  --color-border: #e2e5e0;
+  --color-border-strong: #080a09;
+  --color-fg: #080a09;
+  --color-muted: #69706b;
+  --color-lime-soft: #f0ffd9;
+  --color-lime-ink: #3d6b00; /* "lima" legible como texto sobre fondo claro */
+  --color-selected: #080a09; /* nav, tabs y chips seleccionados */
+  --color-selected-fg: #ffffff;
+  --color-panel: #080a09; /* bloques protagonistas oscuros */
+  --color-panel-2: #151817;
+  --color-focus: #080a09;
+  --color-grid-line: rgb(8 10 9 / 0.06);
+
+  /* Semánticos (siempre con texto o icono, nunca solo color) */
+  --color-success: #15803d;
+  --color-success-soft: #e3f5e9;
+  --color-warning: #8a4f00;
+  --color-warning-soft: #fff3de;
+  --color-danger: #c42b2b;
+  --color-danger-soft: #fce8e8;
+}
+
+@layer base {
+  :root[data-theme='dark'] {
+    --color-bg: #080a09;
+    --color-surface: #151817;
+    --color-surface-2: #1d211f;
+    --color-border: #2a2f2c;
+    --color-border-strong: #ffffff;
+    --color-fg: #ffffff;
+    --color-muted: #9aa29c;
+    --color-lime-soft: #1c2a08;
+    --color-lime-ink: #8ef400;
+    --color-selected: #8ef400;
+    --color-selected-fg: #080a09;
+    --color-panel: #151817;
+    --color-panel-2: #1d211f;
+    --color-focus: #8ef400;
+    --color-grid-line: rgb(255 255 255 / 0.05);
+    --color-success: #4ade80;
+    --color-success-soft: #13291b;
+    --color-warning: #fbbf24;
+    --color-warning-soft: #2e2410;
+    --color-danger: #f87171;
+    --color-danger-soft: #331818;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme='system'] {
+      --color-bg: #080a09;
+      --color-surface: #151817;
+      --color-surface-2: #1d211f;
+      --color-border: #2a2f2c;
+      --color-border-strong: #ffffff;
+      --color-fg: #ffffff;
+      --color-muted: #9aa29c;
+      --color-lime-soft: #1c2a08;
+      --color-lime-ink: #8ef400;
+      --color-selected: #8ef400;
+      --color-selected-fg: #080a09;
+      --color-panel: #151817;
+      --color-panel-2: #1d211f;
+      --color-focus: #8ef400;
+      --color-grid-line: rgb(255 255 255 / 0.05);
+      --color-success: #4ade80;
+      --color-success-soft: #13291b;
+      --color-warning: #fbbf24;
+      --color-warning-soft: #2e2410;
+      --color-danger: #f87171;
+      --color-danger-soft: #331818;
+    }
+  }
+
+  :root {
+    color-scheme: light;
+  }
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme='system'] {
+      color-scheme: dark;
+    }
+  }
+
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Microetiqueta técnica: IBM Plex Mono, mayúsculas, tracking 0.12em. */
+@utility label-tech {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Retícula tenue de 1 px para paneles protagonistas (nunca detrás de texto pequeño). */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--color-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Barrido de escaneo para estados de carga. */
+@keyframes pf-scan {
+  0% {
+    transform: translateY(4px);
+  }
+  100% {
+    transform: translateY(calc(100% - 6px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

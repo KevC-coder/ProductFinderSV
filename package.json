@@ -1,0 +1,24 @@
+{
+  "name": "productfindersv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bot local que vigila Facebook Marketplace y muestra resultados en un dashboard",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/server",
+    "start": "npm run start -w apps/server",
+    "fb:login": "npm run fb:login -w apps/server",
+    "spike": "npm run spike -w apps/server --",
+    "test": "npm test -w apps/server",
+    "typecheck": "npm run typecheck -w apps/server && npm run typecheck -w apps/web && npm run typecheck -w apps/desktop",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "icons": "npm run icons -w apps/desktop",
+    "package": "npm run build && npm run package -w apps/desktop"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

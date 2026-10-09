@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#080a09" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>ProductFinderSV</title>
+    <script>
+      // Aplicar el tema guardado antes de pintar, para evitar un parpadeo.
+      try {
+        var t = localStorage.getItem('pf-theme');
+        if (t === 'dark' || t === 'system') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
