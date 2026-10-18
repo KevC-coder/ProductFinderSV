@@ -292,3 +292,28 @@ test('ajustes de avisos y aviso de riesgos', async () => {
   assert.equal((await app.inject({ method: 'GET', url: '/api/settings' })).json().riskNoticeAccepted, true);
   assert.equal((await patch({ notifyMode: 'siempre' })).json().error, 'Notificaciones: valor no permitido.');
 });
+
+test('"Ejecutar ya" durante la pausa de seguridad responde 409 con la explicación', async () => {
+  const { app, store } = setup();
+  const w = (await app.inject({ method: 'POST', url: '/api/watchers', payload: { name: 'a', query: 'b' } })).json();
+  store.settings.set({ pausedUntil: '2999-01-01T00:00:00.000Z' });
+  const res = await app.inject({ method: 'POST', url: `/api/watchers/${w.id}/run?wait=true` });
+  assert.equal(res.statusCode, 409);
+  assert.match(res.json().error, /pausa por seguridad/);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/watchers/999/run' })).statusCode, 404);
+});
+
+test('el estado informa del servicio en segundo plano solo en la app de escritorio', async () => {
+  const { app } = setup();
+  assert.equal((await app.inject({ method: 'GET', url: '/api/status' })).json().service, null);
+
+  const store = createStore(':memory:');
+  const bot = new Bot(store, fakeScraper({ listings: [] }).scraper);
+  const service = { since: '2026-10-18T12:00:00.000Z', restarts: 2 };
+  const desktop = buildApp({
+    store,
+    bot,
+    desktop: { autostart: { isEnabled: async () => false, setEnabled: async () => {} }, service },
+  });
+  assert.deepEqual((await desktop.inject({ method: 'GET', url: '/api/status' })).json().service, service);
+});

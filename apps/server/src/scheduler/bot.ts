@@ -103,7 +103,7 @@ export class Bot extends EventEmitter<BotEvents> {
     const now = this.now();
     if (!s.schedulerEnabled) return 'disabled';
     if (s.sessionState === 'logged_out') return 'logged_out';
-    if (s.pausedUntil && Date.parse(s.pausedUntil) > now.getTime()) return 'paused';
+    if (this.isPaused()) return 'paused';
     if (runsLastHour >= s.maxRunsPerHour) return 'rate_limit';
     const last = this.store.runs.lastFinishedAt();
     if (last && Date.parse(last) + s.minGapSeconds * 1000 > now.getTime()) return 'cooldown';
@@ -125,11 +125,17 @@ export class Bot extends EventEmitter<BotEvents> {
     return { started: this.enqueueRun(due, false) };
   }
 
-  /** "Probar ahora": ignora horario y límites (es una acción explícita del usuario), pero usa la cola. */
-  runNow(watcherId: number): Promise<FinishedRun> | null {
+  /**
+   * "Probar ahora": ignora horario y límites (es una acción explícita del usuario) y usa la
+   * cola. No se permite durante la pausa de seguridad tras una verificación de Facebook:
+   * volver a entrar a Marketplace en ese momento es justo lo que la pausa quiere evitar.
+   */
+  runNow(watcherId: number): { started: Promise<FinishedRun> } | { refused: 'not_found' | 'queued' | 'paused' } {
     const w = this.store.watchers.get(watcherId);
-    if (!w || this.queue.has(watcherJob(w.id))) return null;
-    return this.enqueueRun(w, true);
+    if (!w) return { refused: 'not_found' };
+    if (this.isPaused()) return { refused: 'paused' };
+    if (this.queue.has(watcherJob(w.id))) return { refused: 'queued' };
+    return { started: this.enqueueRun(w, true) };
   }
 
   isQueued(watcherId: number): boolean {
@@ -181,6 +187,12 @@ export class Bot extends EventEmitter<BotEvents> {
   }
 
   // -------------------------------------------------------------------------------------
+
+  /** Pausa de seguridad tras una verificación de Facebook (checkpoint) todavía vigente. */
+  private isPaused(): boolean {
+    const until = this.store.settings.get('pausedUntil');
+    return !!until && Date.parse(until) > this.now().getTime();
+  }
 
   private isBusy(): boolean {
     const q = this.queue.status();

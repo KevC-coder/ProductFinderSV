@@ -11,7 +11,8 @@ export interface TrayOptions {
 /**
  * Icono en la bandeja del sistema (área de notificación), hecho con WinForms desde PowerShell
  * para no distribuir binarios nativos. Habla con el servicio por la misma API local que el
- * panel: lee /api/status para el texto del icono y usa /api/settings y /api/system/shutdown.
+ * panel: lee /api/status para el texto del icono y usa /api/settings, /api/system/autostart
+ * y /api/system/shutdown.
  */
 export function trayScript({ exePath, port, parentPid }: TrayOptions): string {
   return `
@@ -48,6 +49,8 @@ $open = $menu.Items.Add('Abrir ProductFinderSV')
 $open.Font = New-Object System.Drawing.Font($menu.Font, [System.Drawing.FontStyle]::Bold)
 $results = $menu.Items.Add('Ver resultados')
 $toggle = $menu.Items.Add('Pausar búsquedas automáticas')
+$autostart = New-Object System.Windows.Forms.ToolStripMenuItem('Iniciar con Windows')
+[void]$menu.Items.Add($autostart)
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $quit = $menu.Items.Add('Cerrar ProductFinderSV')
 $icon.ContextMenuStrip = $menu
@@ -84,9 +87,22 @@ $toggle.add_Click({
   } catch {}
   Update-Status
 })
+# El estado del inicio con Windows se lee al abrir el menú (está en el registro, no en /status).
+$menu.add_Opening({
+  try {
+    $autostart.Checked = [bool](Invoke-Api 'GET' '/system/autostart').enabled
+    $autostart.Enabled = $true
+  } catch { $autostart.Enabled = $false }
+})
+$autostart.add_Click({
+  try {
+    $body = @{ enabled = (-not $autostart.Checked) } | ConvertTo-Json -Compress
+    $autostart.Checked = [bool]((Invoke-Api 'PUT' '/system/autostart' $body) | ConvertFrom-Json).enabled
+  } catch {}
+})
 $quit.add_Click({
   $answer = [System.Windows.Forms.MessageBox]::Show(
-    'Se detendrán las búsquedas automáticas hasta que vuelvas a abrir ProductFinderSV desde el escritorio o el menú Inicio.',
+    'Se detendrán las búsquedas automáticas hasta que vuelvas a abrir ProductFinderSV desde el escritorio o el menú Inicio (o hasta que inicies Windows, si está activado "Iniciar con Windows").',
     'Cerrar ProductFinderSV', 'OKCancel', 'Question')
   if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
   try { [void](Invoke-Api 'POST' '/system/shutdown' '') } catch {}

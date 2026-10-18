@@ -79,7 +79,8 @@
 - *Pospuesto:* bot de Telegram (token + chat id configurados por el usuario) para recibir alertas en el celular.
 
 **RF-06 Ejecución en segundo plano**
-- Proceso que arranca al iniciar sesión en Windows (desactivable en Ajustes), sin ventana visible, con icono en la bandeja del sistema (Abrir panel / Ver resultados / Pausar-Reanudar / Cerrar).
+- Proceso que arranca al iniciar sesión en Windows si el usuario lo elige (en la bienvenida; luego en Ajustes o en el icono de la bandeja), sin ventana visible y con icono en la bandeja del sistema (Abrir panel / Ver resultados / Pausar-Reanudar / Iniciar con Windows / Cerrar).
+- Sigue trabajando aunque se cierre la ventana del panel. Un supervisor lo reinicia si se cae o deja de responder (esperas de 2 s a 5 min), y cada corrida tiene un tope de 10 min para que un Edge colgado no bloquee el bot.
 - Registro (logs) de cada corrida: hora, búsqueda, # resultados, # nuevos, errores.
 
 **RF-07 Configuración**
@@ -141,6 +142,8 @@
 Un **Windows Service clásico** corre en la *Sesión 0* como `LocalSystem`: **no puede mostrar la ventana del navegador** para iniciar sesión en Facebook ni mostrar toasts, y usaría un perfil distinto al del usuario. Por eso se recomienda:
 
 - **Opción elegida:** valor en la clave **`HKCU\...\CurrentVersion\Run`** que lanza `ProductFinderSV.exe --background` al iniciar sesión, + icono en bandeja. Se comporta como servicio (siempre activo, auto-arranque) pero en la sesión del usuario y, a diferencia de una tarea programada "al iniciar sesión", no requiere permisos de administrador.
+  - Como un servicio real, se recupera solo: `--server` es un **supervisor** que lanza el servicio (`--worker`) y lo reinicia si termina inesperadamente o si `/api/status` deja de responder 3 veces seguidas (tras 2 min de gracia al arrancar). Esperas crecientes: 2 s, 5 s, 15 s, 1 min y luego 5 min; vuelven a 2 s si funcionó 10 min. No reinicia si el usuario lo cerró ("Cerrar ProductFinderSV") ni si ya había otro servicio en el puerto.
+  - Limitación asumida: solo trabaja con la sesión de Windows iniciada (no antes del login).
 - **Opción avanzada (opcional):** servicio con **WinSW/NSSM** configurado para correr *como el usuario*, en modo headless, después de haber hecho el login una vez en modo interactivo. Sin toasts (solo Telegram).
 
 ---
@@ -241,7 +244,7 @@ La moneda es siempre USD (El Salvador), por eso no hay `currency` en `watchers`.
 4. **Detalle** — descripción, historial de precio (mini gráfico), keywords que hicieron match, link a FB.
 5. **Actividad** — log de corridas y errores.
 6. **Ajustes** — sesión de Facebook, bot y modo del navegador, notificaciones, límites, inicio con Windows y cierre de la app.
-7. **Bienvenida** (primer arranque) — aviso de riesgos que se acepta una vez; luego la tarjeta "Para empezar" de Inicio guía la conexión de Facebook y la primera búsqueda.
+7. **Bienvenida** (primer arranque) — aviso de riesgos que se acepta una vez y, en la app de escritorio, si iniciar con Windows; luego la tarjeta "Para empezar" de Inicio guía la conexión de Facebook y la primera búsqueda.
 
 Exportar/importar búsquedas está en **Búsquedas**.
 
@@ -291,8 +294,8 @@ ProductFinderSV/
 
 ## 10. Distribución a amigos
 
-- Un solo `ProductFinderSV.exe` (GitHub Releases) que al abrirlo: se copia a `%LOCALAPPDATA%\Programs\ProductFinderSV`, crea accesos directos (escritorio y menú Inicio), se registra en Configuración → Aplicaciones (con desinstalador), activa el inicio con Windows y abre el panel en su propia ventana.
-- Primer arranque → pantalla de bienvenida: (1) aceptar aviso de riesgos; luego Inicio guía (2) conectar Facebook y (3) crear la primera búsqueda.
+- Un solo `ProductFinderSV.exe` (GitHub Releases) que al abrirlo: se copia a `%LOCALAPPDATA%\Programs\ProductFinderSV`, crea accesos directos (escritorio y menú Inicio), se registra en Configuración → Aplicaciones (con desinstalador) y abre el panel en su propia ventana.
+- Primer arranque → pantalla de bienvenida: (1) aceptar aviso de riesgos y elegir si iniciar con Windows; luego Inicio guía (2) conectar Facebook y (3) crear la primera búsqueda.
 - Cada amigo usa **su propia cuenta y su propio PC**; nada se comparte entre instalaciones (salvo exportar/importar búsquedas en JSON).
 - Firma de código: sin certificado, Windows SmartScreen mostrará advertencia ("Más información → Ejecutar de todas formas"); documentado en el README.
 - Actualizaciones: descargar el nuevo `.exe` y abrirlo (cierra la versión en ejecución y la reemplaza conservando los datos). *Pendiente (F6):* aviso de versión nueva en el panel.
@@ -325,3 +328,8 @@ ProductFinderSV/
 5. Auto-arranque con la clave **Run** de HKCU en lugar del Programador de tareas (no requiere administrador).
 6. Avisos y bandeja con **PowerShell** (API de avisos de Windows y WinForms) en lugar de `node-notifier`/`systray2`: sin binarios nativos dentro del ejecutable SEA.
 7. Empaquetado con **Node SEA** (un único `.exe` que se instala solo) en lugar de Inno Setup.
+
+**Tomadas (2026-10-18)**
+
+8. "Funcionar como servicio" = reforzar el proceso en segundo plano por usuario (supervisor con reinicio automático y tope por corrida) en lugar de un servicio real de Windows, que exigiría administrador y separaría el login de Facebook, los avisos y la bandeja en otro proceso.
+9. Inicio con Windows **opcional**: se pregunta en la bienvenida (marcado por defecto) en lugar de activarse solo al instalar.

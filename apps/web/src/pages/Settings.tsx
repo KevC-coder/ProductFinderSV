@@ -318,6 +318,16 @@ export function Settings() {
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-sm">
             <dt className="label-tech self-center text-muted">Versión</dt>
             <dd className="font-mono">{status.data?.version ?? '—'}</dd>
+            {status.data?.service && (
+              <>
+                <dt className="label-tech self-center text-muted">En segundo plano</dt>
+                <dd>desde {formatDateTime(status.data.service.since)}</dd>
+                <dt className="label-tech self-center text-muted">Reinicios automáticos</dt>
+                <dd title="Veces que ProductFinderSV se reinició solo porque el servicio se cerró o dejó de responder.">
+                  {status.data.service.restarts === 0 ? 'Ninguno' : status.data.service.restarts}
+                </dd>
+              </>
+            )}
           </dl>
           {desktop && (
             <Toggle
@@ -329,7 +339,7 @@ export function Settings() {
                 })
               }
               label="Iniciar con Windows"
-              description="ProductFinderSV arranca en segundo plano al iniciar sesión, con su icono junto al reloj. Si lo apagas, el bot solo busca mientras esté abierto."
+              description="ProductFinderSV arranca en segundo plano al iniciar sesión, con su icono junto al reloj. Si lo apagas, empieza a buscar cuando lo abras (y sigue aunque cierres la ventana)."
             />
           )}
           {status.data?.canShutdown && (

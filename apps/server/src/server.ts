@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildApp } from './api/app.js';
+import { buildApp, type ServiceInfo } from './api/app.js';
 import { paths } from './config.js';
 import { createStore } from './db/store.js';
 import { createAutostart } from './desktop/autostart.js';
@@ -23,6 +23,8 @@ export interface StartOptions {
    * bandeja, el inicio con Windows y que los avisos abran la ventana de la app.
    */
   desktopExe?: string;
+  /** Lo informa el supervisor del servicio (ver desktop/supervisor.ts). */
+  service?: ServiceInfo;
 }
 
 export interface RunningServer {
@@ -74,7 +76,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     bot,
     logger: opts.logFile ? { level: 'info', file: opts.logFile } : true,
     webDir,
-    desktop: desktopExe ? { autostart: createAutostart(desktopExe) } : undefined,
+    desktop: desktopExe ? { autostart: createAutostart(desktopExe), service: opts.service } : undefined,
     onShutdown: async () => {
       // Red de seguridad: si algo bloquea el cierre ordenado, salir igual.
       setTimeout(() => process.exit(0), 5000).unref();

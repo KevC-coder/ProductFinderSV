@@ -135,6 +135,8 @@ export interface Status {
   canShutdown: boolean;
   /** Corre como app de escritorio de Windows (bandeja, inicio con Windows). */
   desktop: boolean;
+  /** Servicio en segundo plano (solo app de escritorio): desde cuándo corre y reinicios automáticos. */
+  service: { since: string; restarts: number } | null;
   sessionState: SessionState;
   schedulerEnabled: boolean;
   pausedUntil: string | null;

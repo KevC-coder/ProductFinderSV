@@ -33,7 +33,7 @@ const scripts: Record<string, string> = {
   toastSinIcono: toastScript(toastXml({ title: 't', lines: [], route: 'inicio' }, 'http://127.0.0.1:8787/#/inicio'), null),
   register: registerScript({ exePath: exe, version: '0.2.0' }),
   unregister: unregisterScript(),
-  cleanup: cleanupScript([path.win32.dirname(exe), "C:\\Users\\O'Neil\\AppData\\Local\\productFindersv"]),
+  cleanup: cleanupScript({ exePath: exe, targets: [path.win32.dirname(exe), "C:\\Users\\O'Neil\\AppData\\Local\\productFindersv"] }),
   messageBox: messageBoxScript('¿Desinstalar ProductFinderSV?\n\nSe cerrará y "dejará" de buscar.', 'YesNo', 'Question'),
 };
 

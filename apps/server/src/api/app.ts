@@ -34,7 +34,7 @@ export interface AppDeps {
   /** Carpeta con el panel compilado (apps/web/dist). Sin ella solo se sirve la API. */
   webDir?: string;
   /** Solo en la app de escritorio (Windows): integración con el sistema. */
-  desktop?: { autostart: Autostart };
+  desktop?: { autostart: Autostart; service?: ServiceInfo };
 }
 
 /** Sirve el panel y devuelve index.html para cualquier ruta que no sea de la API. */
@@ -47,6 +47,18 @@ function registerWeb(app: FastifyInstance, webDir: string): void {
 }
 
 type IdParams = { Params: { id: number } };
+
+/** Servicio en segundo plano (app de escritorio): desde cuándo corre y cuántas veces se reinició solo. */
+export interface ServiceInfo {
+  since: string;
+  restarts: number;
+}
+
+const RUN_REFUSED = {
+  queued: 'La búsqueda ya está en cola',
+  paused:
+    'El bot está en pausa por seguridad porque Facebook pidió una verificación. Resuélvela y pulsa “Ya lo resolví, reanudar” antes de probar.',
+} as const;
 
 /** Solo los campos editables: lo que se comparte al exportar una búsqueda. */
 function toInput(w: Watcher): WatcherInput {
@@ -80,6 +92,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
     version: APP_VERSION,
     canShutdown: !!onShutdown,
     desktop: !!desktop,
+    service: desktop?.service ?? null,
     ...bot.status(),
     activeWatchers: store.watchers.countActive(),
     matches: store.matches.countByStatus(),
@@ -200,11 +213,13 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       },
     },
     async (req, reply) => {
-      if (!store.watchers.get(req.params.id)) return reply.code(404).send({ error: 'Búsqueda no encontrada' });
-      const pending = bot.runNow(req.params.id);
-      if (!pending) return reply.code(409).send({ error: 'La búsqueda ya está en cola' });
-      if (req.query.wait) return pending;
-      pending.catch((err) => app.log.error(err, 'corrida falló'));
+      const run = bot.runNow(req.params.id);
+      if ('refused' in run) {
+        if (run.refused === 'not_found') return reply.code(404).send({ error: 'Búsqueda no encontrada' });
+        return reply.code(409).send({ error: RUN_REFUSED[run.refused] });
+      }
+      if (req.query.wait) return run.started;
+      run.started.catch((err) => app.log.error(err, 'corrida falló'));
       return reply.code(202).send({ queued: true });
     },
   );

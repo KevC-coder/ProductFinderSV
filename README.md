@@ -8,13 +8,14 @@ Bot local para Windows que vigila Facebook Marketplace (El Salvador, USD) y mues
 
 1. Descarga **`ProductFinderSV.exe`** de la sección [Releases](../../releases) del repositorio.
 2. Ábrelo con doble clic. Como el ejecutable no está firmado, Windows puede mostrar *"Windows protegió su PC"*: pulsa **Más información → Ejecutar de todas formas**.
-3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, queda en **Configuración → Aplicaciones**, se configura para **iniciar con Windows** y abre el panel en su propia ventana.
-4. En el panel: acepta el aviso de riesgos → **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
+3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, queda en **Configuración → Aplicaciones** y abre el panel en su propia ventana.
+4. En el panel: acepta el aviso de riesgos y elige si **iniciar con Windows** → **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
 
 Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta instalar nada más.
 
-- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano, con su icono junto al reloj de Windows (clic → abre el panel; clic derecho → ver resultados, pausar/reanudar las búsquedas automáticas o cerrar). Para detenerlo: *icono → Cerrar ProductFinderSV* o *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
-- **Inicio con Windows**: activado de fábrica; se cambia en *Ajustes → Aplicación → Iniciar con Windows*.
+- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano, con su icono junto al reloj de Windows (clic → abre el panel; clic derecho → ver resultados, pausar/reanudar las búsquedas automáticas, iniciar con Windows o cerrar). Para detenerlo: *icono → Cerrar ProductFinderSV* o *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
+- **Inicio con Windows**: se elige en la bienvenida (viene marcado) y se cambia en *Ajustes → Aplicación* o en el menú del icono. Con él activado, ProductFinderSV arranca en segundo plano cada vez que inicias sesión en Windows, sin abrir la ventana. Solo busca con la sesión de Windows iniciada.
+- **Se recupera solo**: si el servicio se cae o deja de responder, se reinicia automáticamente (en *Ajustes → Aplicación* se ve desde cuándo corre y cuántas veces se reinició). En el Administrador de tareas verás dos procesos *ProductFinderSV*: el servicio y su supervisor.
 - **Avisos**: cuando una búsqueda automática encuentra resultados nuevos o una bajada de precio, Windows muestra un aviso; al hacer clic se abren esos resultados. En *Ajustes → Notificaciones* eliges todos, solo precio ideal o ninguno.
 - **Compartir búsquedas**: en *Búsquedas → Exportar* se descarga un `.json` con tus criterios (sin resultados ni datos de tu cuenta); tu amigo lo carga con *Importar*.
 - **Actualizar**: descarga el nuevo `.exe` y ábrelo; reemplaza la versión anterior y conserva tus búsquedas y resultados.
@@ -47,9 +48,10 @@ Modos del ejecutable (los usa Windows; no hace falta escribirlos a mano):
 | Argumento | Uso |
 |---|---|
 | *(ninguno)* | Instala/actualiza, arranca el servicio y abre el panel |
-| `--background` | Igual pero sin abrir el panel (inicio con Windows) |
+| `--background` | Igual pero sin abrir el panel (inicio con Windows, si está activado) |
 | `--open productfindersv://resultados?watcher=3` | Abre una pantalla concreta (clic en un aviso) |
-| `--server` | El servicio en sí (lo lanza el propio ejecutable) |
+| `--server` | Supervisor: lanza el servicio y lo reinicia si se cae o no responde |
+| `--worker` | El servicio en sí: API, panel, bot e icono de la bandeja (lo lanza el supervisor) |
 | `--uninstall` | Desinstalador (Configuración → Aplicaciones) |
 
 Cada push a `main` y cada pull request pasan por [ci.yml](.github/workflows/ci.yml): typecheck, tests y build.

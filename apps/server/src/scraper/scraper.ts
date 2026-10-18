@@ -9,7 +9,14 @@ import {
   type SearchResult,
 } from './marketplace-search.js';
 import type { Listing } from './parsers/listing.js';
+import { withTimeout } from '../runner/timeout.js';
 import { hasSessionCookie, interactiveLogin } from './session.js';
+
+/**
+ * Tope de una corrida completa. Si Edge o Facebook se cuelgan, se cierra el navegador y la
+ * corrida termina con error: el bot no puede quedarse bloqueado para siempre.
+ */
+export const RUN_TIMEOUT_MS = 10 * 60_000;
 
 export interface ScrapeSession {
   search(params: SearchParams, opts?: SearchOptions): Promise<SearchResult>;
@@ -37,15 +44,17 @@ export function createPlaywrightScraper(opts: { mode: () => BrowserMode }): Scra
       try {
         if (!(await hasSessionCookie(ctx))) throw new SessionError('logged_out');
         const page = await firstPage(ctx);
-        return await fn({
+        const work = fn({
           search: (params, searchOpts) => searchMarketplace(page, params, searchOpts),
           async detail(id) {
             await pause(3000, 7000);
             return fetchListingDetail(page, id);
           },
         });
+        // Al vencer, cerrar el navegador hace fallar lo que Playwright tuviera pendiente.
+        return await withTimeout(work, RUN_TIMEOUT_MS, () => void ctx.close().catch(() => {}));
       } finally {
-        await ctx.close();
+        await ctx.close().catch(() => {});
       }
     },
     login: () => interactiveLogin(),

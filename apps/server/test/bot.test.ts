@@ -156,11 +156,12 @@ test('"probar ahora" ignora el horario pero no se encola dos veces', async () =>
   const { store, bot, addWatcher } = setup({ h: 3 });
   const w = addWatcher();
   const first = bot.runNow(w.id);
-  assert.ok(first);
-  assert.equal(bot.runNow(w.id), null);
+  assert.ok('started' in first);
+  assert.deepEqual(bot.runNow(w.id), { refused: 'queued' });
+  assert.deepEqual(bot.runNow(999), { refused: 'not_found' });
   await Promise.resolve();
   assert.equal(bot.status().searchingWatcherId, w.id);
-  assert.equal((await first).status, 'ok');
+  assert.equal((await first.started).status, 'ok');
   assert.equal(store.runs.list().length, 1);
 });
 
@@ -194,9 +195,21 @@ test('el evento de corrida terminada indica si fue "Probar ahora" o automática'
   const seen: boolean[] = [];
   bot.on('run:finished', (s) => seen.push(s.manual));
 
-  const manual = await bot.runNow(w.id);
-  assert.equal(manual?.manual, true);
+  const run = bot.runNow(w.id);
+  assert.ok('started' in run);
+  assert.equal((await run.started).manual, true);
   c.advance(200); // después de la próxima corrida programada
   await tickAndWait(bot);
   assert.deepEqual(seen, [true, false]);
+});
+
+test('"probar ahora" no se permite durante la pausa de seguridad por verificación', async () => {
+  const { store, bot, c, addWatcher } = setup();
+  const w = addWatcher();
+  store.settings.set({ pausedUntil: new Date(c.now().getTime() + 60 * 60_000).toISOString() });
+  assert.deepEqual(bot.runNow(w.id), { refused: 'paused' });
+  c.advance(61);
+  const run = bot.runNow(w.id);
+  assert.ok('started' in run);
+  await run.started;
 });
