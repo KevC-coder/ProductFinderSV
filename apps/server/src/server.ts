@@ -3,7 +3,7 @@ import path from 'node:path';
 import { buildApp, type ServiceInfo } from './api/app.js';
 import { paths } from './config.js';
 import { createStore } from './db/store.js';
-import { createAutostart, restoreAutostart } from './desktop/autostart.js';
+import { createAutostart, reconcileAutostart } from './desktop/autostart.js';
 import { appLink } from './desktop/links.js';
 import { startTray } from './desktop/tray.js';
 import { notifyRun } from './notifier/notification.js';
@@ -119,10 +119,20 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   if (desktopExe) {
     stopTray = startTray({ exePath: desktopExe, port }, (err) => app.log.warn({ err }, 'icono de la bandeja'));
   }
-  if (autostart) {
-    restoreAutostart(store.settings.get('autostartWanted'), autostart)
-      .then((restored) => restored && app.log.info('inicio con Windows restaurado'))
-      .catch((err) => app.log.warn({ err }, 'no se pudo restaurar el inicio con Windows'));
+  if (autostart && desktopExe) {
+    // "Primer arranque tras instalar" = falta el marcador junto al .exe instalado. La
+    // desinstalación borra esa carpeta (y el marcador) pero puede conservar la base de datos.
+    const installed = path.resolve(path.dirname(desktopExe)).toLowerCase() === path.resolve(paths.install).toLowerCase();
+    const marker = path.join(paths.install, 'autostart-revisado.txt');
+    const firstStartAfterInstall = installed && !fs.existsSync(marker);
+    const wanted = store.settings.get('autostartWanted');
+    reconcileAutostart({ wanted, firstStartAfterInstall, autostart })
+      .then((r) => {
+        if (r.wanted !== wanted) store.settings.set({ autostartWanted: r.wanted });
+        if (r.restored) app.log.info('inicio con Windows restaurado');
+        if (firstStartAfterInstall) fs.writeFileSync(marker, new Date().toISOString());
+      })
+      .catch((err) => app.log.warn({ err }, 'no se pudo revisar el inicio con Windows'));
   }
   app.log.info({ version: APP_VERSION, data: paths.data }, 'ProductFinderSV iniciado');
   return { url: `http://127.0.0.1:${port}`, stop };

@@ -13,7 +13,7 @@ const { watcherInput } = await import('./helpers.js');
 const { paths } = await import('../src/config.js');
 const { startServer } = await import('../src/server.js');
 const { createStore } = await import('../src/db/store.js');
-const { restoreAutostart } = await import('../src/desktop/autostart.js');
+const { reconcileAutostart } = await import('../src/desktop/autostart.js');
 
 const dbFile = path.join(dataDir, 'productfindersv.db');
 const logFile = path.join(dataDir, 'logs', 'server.log');
@@ -47,13 +47,29 @@ test('un servicio que no consigue el puerto no toca la corrida en curso del serv
   after.db.close();
 });
 
-test('restaura el inicio con Windows si el usuario lo había elegido y la clave ya no está', async () => {
+test('inicio con Windows: guarda la elección de instalaciones anteriores y la restaura solo al reinstalar', async () => {
   let enabled = false;
   const autostart = { isEnabled: async () => enabled, setEnabled: async (v: boolean) => void (enabled = v) };
-  assert.equal(await restoreAutostart(null, autostart), false);
-  assert.equal(await restoreAutostart(false, autostart), false);
-  assert.equal(enabled, false);
-  assert.equal(await restoreAutostart(true, autostart), true);
+  const reconcile = (wanted: boolean | null, firstStartAfterInstall: boolean) =>
+    reconcileAutostart({ wanted, firstStartAfterInstall, autostart });
+
+  // Nunca eligió y no hay clave: sigue sin elección.
+  assert.deepEqual(await reconcile(null, true), { wanted: null, restored: false });
+  // Instalación anterior con la clave puesta: se toma como elegida.
+  enabled = true;
+  assert.deepEqual(await reconcile(null, false), { wanted: true, restored: false });
+
+  // Reinstaló conservando los datos: la clave falta y es el primer arranque → se restaura.
+  enabled = false;
+  assert.deepEqual(await reconcile(true, true), { wanted: true, restored: true });
   assert.equal(enabled, true);
-  assert.equal(await restoreAutostart(true, autostart), false, 'si ya está, no hace nada');
+
+  // La quitó después con otra herramienta: en arranques normales se respeta.
+  enabled = false;
+  assert.deepEqual(await reconcile(true, false), { wanted: true, restored: false });
+  assert.equal(enabled, false);
+
+  // Si eligió que no, nunca se activa.
+  assert.deepEqual(await reconcile(false, true), { wanted: false, restored: false });
+  assert.equal(enabled, false);
 });

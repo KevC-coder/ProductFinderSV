@@ -50,7 +50,7 @@ const URL = `http://127.0.0.1:${PORT}`;
 const RUNTIME_ROOT = path.join(paths.data, 'runtime');
 const RUNTIME_DIR = path.join(RUNTIME_ROOT, BUILD_ID);
 const LOG_DIR = paths.logs;
-const INSTALL_DIR = path.join(paths.localAppData, 'Programs', 'ProductFinderSV');
+const INSTALL_DIR = paths.install;
 const INSTALLED_EXE = path.join(INSTALL_DIR, 'ProductFinderSV.exe');
 const START_MENU_SHORTCUT = path.join(
   process.env.APPDATA ?? path.join(paths.localAppData, '..', 'Roaming'),
@@ -288,7 +288,8 @@ function openWindow(route = 'inicio'): void {
 
 /** Pide al servicio en ejecución que se cierre y espera a que libere el puerto. */
 async function stopRunningService(): Promise<void> {
-  await fetch(`${URL}/api/system/shutdown`, { method: 'POST' }).catch(() => {});
+  // Con tope: un servicio colgado acepta la conexión pero no contesta nunca.
+  await fetch(`${URL}/api/system/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
   await waitFor(async () => (await probe()) === null, 15_000);
 }
 
@@ -355,6 +356,16 @@ async function uninstall(): Promise<void> {
   for (const exe of new Set([INSTALLED_EXE, process.execPath])) stopProcessesOf(exe);
 
   spawnSync('powershell.exe', powershellArgs(unregisterScript()), { windowsHide: true });
+  // Ya no queda ningún proceso nuestro usando estos archivos: se borran ahora y no después del
+  // último aviso, que el usuario podría dejar abierto y apagar el equipo. Sin borrar datos se
+  // quita igual la copia extraída de la app (runtime), que no es del usuario.
+  // A partir de aquí no se usa log(): el registro está dentro de la carpeta de datos.
+  const dataTarget = removeData ? paths.data : RUNTIME_ROOT;
+  try {
+    fs.rmSync(dataTarget, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+  } catch {
+    // lo que quede lo intenta el borrado diferido
+  }
   messageBox(
     removeData
       ? 'ProductFinderSV se desinstaló junto con tus datos.'
@@ -364,10 +375,9 @@ async function uninstall(): Promise<void> {
   );
 
   // Al final, para que el plazo de espera no corra mientras el último aviso sigue abierto:
-  // este desinstalador termina enseguida y un PowerShell aparte borra el .exe cuando ya no esté
-  // en uso. Sin borrar datos se quita igual la copia extraída de la app (runtime).
-  const targets = [INSTALL_DIR, removeData ? paths.data : RUNTIME_ROOT];
-  spawnPowerShell(cleanupScript({ exePath: process.execPath, targets }), { detached: true }).unref();
+  // este desinstalador termina enseguida y un PowerShell aparte borra la carpeta del programa
+  // (y lo que hubiera quedado de los datos) cuando el .exe ya no esté en uso.
+  spawnPowerShell(cleanupScript({ exePath: process.execPath, targets: [INSTALL_DIR, dataTarget] }), { detached: true }).unref();
 }
 
 // ---- Entrada --------------------------------------------------------------------------

@@ -10,6 +10,8 @@ const dataDir = process.env.PFSV_DATA_DIR ?? path.join(localAppData, 'productFin
 
 export const paths = {
   localAppData,
+  /** Carpeta donde el lanzador instala ProductFinderSV.exe (sin permisos de administrador). */
+  install: path.join(localAppData, 'Programs', 'ProductFinderSV'),
   data: dataDir,
   browserProfile: path.join(dataDir, 'browser-profile'),
   logs: path.join(dataDir, 'logs'),

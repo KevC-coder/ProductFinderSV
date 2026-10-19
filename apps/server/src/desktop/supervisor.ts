@@ -131,7 +131,9 @@ export class Supervisor {
         this.startupFailures++;
         const max = this.o.maxStartupFailures ?? 4;
         if (this.startupFailures >= max) {
-          this.o.log(`el servicio no pudo arrancar ${this.startupFailures} veces seguidas; el supervisor se detiene (ver server.log)`);
+          this.o.log(
+            `el servicio no pudo arrancar ${this.startupFailures} veces seguidas; el supervisor se detiene (el motivo está en los mensajes anteriores de este registro)`,
+          );
           done(code);
           return;
         }
