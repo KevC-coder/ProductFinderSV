@@ -23,7 +23,7 @@
 2. Bot que ejecuta cada búsqueda **N veces al día** dentro de una ventana horaria.
 3. Filtrado local por keywords (incluir/excluir, en título y descripción), rango de precio, ubicación/radio, antigüedad.
 4. **Lista de resultados** con foto, precio, título, ubicación, fecha, link, estado (nuevo / visto / favorito / descartado).
-5. **Notificaciones** de nuevos resultados (avisos de Windows; Telegram pospuesto, ver §12).
+5. **Notificaciones** de nuevos resultados (avisos de Windows y bot de Telegram).
 6. Arranque automático con Windows y ejecución en segundo plano.
 7. **Instalador** sencillo (`.exe`) para compartir con amigos.
 
@@ -76,7 +76,7 @@
 **RF-05 Notificaciones**
 - Aviso de Windows al terminar una búsqueda automática con resultados nuevos o bajadas de precio: un aviso por búsqueda con el resultado de mayor puntuación; clic → abre sus resultados en la ventana de la app. "Probar ahora" no avisa (el resultado ya se ve en el panel).
 - Configurable: todo / solo "precio ideal" / sin avisos.
-- *Pospuesto:* bot de Telegram (token + chat id configurados por el usuario) para recibir alertas en el celular.
+- **Telegram** (opcional): el usuario crea su propio bot con @BotFather, pega el token en Ajustes y vincula su chat con un enlace de un solo uso (`t.me/<bot>?start=<código>`, vence en 10 min). Un mensaje por búsqueda automática (foto del mejor resultado y hasta 5 con precio y enlace a Facebook), con su propio filtro (todo / solo precio ideal / nada), y alertas si Facebook pide verificación o se cierra la sesión. Comandos desde el chat vinculado: `/estado`, `/pausar`, `/reanudar`, `/ayuda`; los demás chats se ignoran. Funciona con long polling (`getUpdates`): no abre puertos ni expone la PC. Cada instalación necesita su propio bot.
 
 **RF-06 Ejecución en segundo plano**
 - Proceso que arranca al iniciar sesión en Windows si el usuario lo elige (en la bienvenida; luego en Ajustes o en el icono de la bandeja), sin ventana visible y con icono en la bandeja del sistema (Abrir panel / Ver resultados / Pausar-Reanudar / Iniciar con Windows / Cerrar).
@@ -131,7 +131,7 @@
 | Scheduler | Implementación propia (cola + `setTimeout` con jitter) | Necesitamos jitter, ventanas horarias y ejecución serial; cron puro no basta. |
 | Frontend | **React + Vite + Tailwind** (build estático servido por Fastify) | Dashboard moderno; en producción no requiere servidor aparte. |
 | Tiempo real | Server-Sent Events | Para "nuevo resultado" y estado del bot en vivo sin recargar. |
-| Notificaciones | API de avisos de Windows vía **PowerShell** (`ToastNotificationManager`) | Sin binarios nativos que empaquetar; Telegram pospuesto. |
+| Notificaciones | API de avisos de Windows vía **PowerShell** (`ToastNotificationManager`) + **Bot API de Telegram** con `fetch` (long polling) | Sin binarios nativos ni dependencias nuevas. |
 | Bandeja del sistema | **PowerShell + WinForms** (`NotifyIcon`) que habla con la API local | Abrir panel / ver resultados / pausar / cerrar. |
 | Empaquetado | **Node SEA**: un solo `ProductFinderSV.exe` autoinstalable (servidor, panel y Playwright embebidos) | Los amigos instalan con doble clic, sin permisos de administrador. |
 
@@ -232,6 +232,10 @@ La moneda es siempre USD (El Salvador), por eso no hay `currency` en `watchers`.
 | GET | `/api/runs` | Log de corridas |
 | GET/PATCH | `/api/settings` | Configuración |
 | GET/PUT | `/api/system/autostart` | Inicio con Windows (solo app de escritorio) |
+| GET/PATCH/DELETE | `/api/telegram` | Estado del bot de Telegram (sin token) / modo de avisos / desvincular |
+| PUT | `/api/telegram/token` | Guardar el token (se valida con Telegram) |
+| POST | `/api/telegram/link` | Enlace de un solo uso para vincular el chat |
+| POST | `/api/telegram/test` | Mensaje de prueba |
 | POST | `/api/system/shutdown` | Cerrar el servicio |
 | GET | `/api/events` | SSE (corrida iniciada/terminada, sesión) |
 
@@ -285,9 +289,9 @@ ProductFinderSV/
 | ✅ **F1 — Núcleo backend** | Esquema SQLite, CRUD de watchers, scraper modular, matcher, deduplicación, API REST. | 3–4 días |
 | ✅ **F2 — Scheduler + seguridad** | Cola serial, frecuencias, ventanas horarias, jitter, backoff, detección de checkpoint, logs. | 2 días |
 | ✅ **F3 — Dashboard** | Pantallas 1–6, SSE en vivo. | 3–4 días |
-| ✅ **F4 — Notificaciones + bandeja + auto-arranque** | Avisos de Windows, icono en la bandeja e inicio con Windows (clave Run). Telegram pospuesto. | 2 días |
+| ✅ **F4 — Notificaciones + bandeja + auto-arranque** | Avisos de Windows, icono en la bandeja, inicio con Windows (clave Run) con supervisor, y bot de Telegram con avisos y comandos. | 2 días |
 | ✅ **F5 — Instalador y distribución** (adelantada: `.exe` autoinstalable con Node SEA en lugar de Inno Setup) | `ProductFinderSV.exe` que se instala solo, desinstalador en Configuración → Aplicaciones, pantalla de bienvenida, exportar/importar búsquedas, publicación por GitHub Releases. | 2 días |
-| **F6 — Mejoras (opcional)** | Scoring con IA (Claude API) para evaluar si la descripción describe "el producto ideal", detección de estafas, multi-ubicación, Telegram, aviso de actualizaciones. | — |
+| **F6 — Mejoras (opcional)** | Scoring con IA (Claude API) para evaluar si la descripción describe "el producto ideal", detección de estafas, multi-ubicación, aviso de actualizaciones. | — |
 
 \* Estimados para un desarrollador con ayuda de Claude Code.
 
@@ -320,7 +324,7 @@ ProductFinderSV/
 **Tomadas (2026-10-08)**
 1. Stack: **Node.js 24 + TypeScript**.
 2. País/moneda: **El Salvador, USD** (locale `es-SV`, zona `America/El_Salvador`).
-3. Telegram: **se pospone** a una fase posterior; el MVP usa solo notificaciones de Windows.
+3. Telegram: se pospuso del MVP inicial y se implementó después (ver decisión 10).
 
 4. Ventana del navegador: **fuera de pantalla** por defecto (ventana normal colocada fuera de la vista: tan discreta para Facebook como una visible, sin molestar al usuario). Configurable en Ajustes: visible / fuera de pantalla / oculto (headless).
 
@@ -334,3 +338,7 @@ ProductFinderSV/
 
 8. "Funcionar como servicio" = reforzar el proceso en segundo plano por usuario (supervisor con reinicio automático y tope por corrida) en lugar de un servicio real de Windows, que exigiría administrador y separaría el login de Facebook, los avisos y la bandeja en otro proceso.
 9. Inicio con Windows **opcional**: se pregunta en la bienvenida (marcado por defecto) en lugar de activarse solo al instalar.
+
+**Tomadas (2026-10-19)**
+
+10. Telegram con **avisos + comandos** (`/estado`, `/pausar`, `/reanudar`) y **un mensaje por búsqueda** (no uno por resultado). Bot propio por instalación, vinculado con enlace de un solo uso; el token se guarda solo en la PC y nunca sale por `/api/settings`.

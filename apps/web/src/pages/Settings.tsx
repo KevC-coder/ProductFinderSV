@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { LogIn, Power, RotateCcw } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { sessionTone } from '../components/BotStatusCard';
+import { ChoiceList, NOTIFY_CHOICES, type Choice } from '../components/ChoiceList';
+import { TelegramSettings } from '../components/TelegramSettings';
 import { useToast } from '../components/Toasts';
-import { Badge, Button, Card, ConfirmDialog, cx, Dot, ErrorNote, Field, NumberInput, PageHeader, PageLoader, Toggle } from '../components/ui';
+import { Button, Card, ConfirmDialog, Dot, ErrorNote, Field, NumberInput, PageHeader, PageLoader, Toggle } from '../components/ui';
 import { api } from '../lib/api';
 import { formatDateTime, SESSION_LABELS } from '../lib/format';
 import { useAutostart, useConnectSession, useSettings, useStatus } from '../lib/hooks';
-import type { BrowserMode, EditableSettings, NotifyMode, Settings as SettingsData } from '../lib/types';
+import type { BrowserMode, EditableSettings, Settings as SettingsData } from '../lib/types';
 
 const DEFAULTS: EditableSettings = {
   schedulerEnabled: true,
@@ -43,13 +45,6 @@ const NUMERIC: Record<NumericKey, { label: string; hint: string; suffix: string;
   maxBackoffMinutes: { label: 'Espera máxima tras errores', hint: 'Tope de la espera creciente.', suffix: 'min', min: 15, max: 1440 },
 };
 
-interface Choice<T extends string> {
-  value: T;
-  title: string;
-  text: string;
-  recommended?: boolean;
-}
-
 const BROWSER_MODES: Choice<BrowserMode>[] = [
   {
     value: 'offscreen',
@@ -68,78 +63,6 @@ const BROWSER_MODES: Choice<BrowserMode>[] = [
     text: 'Sin ventana ni icono. Algo más fácil de detectar como bot: si ves verificaciones en Actividad, cambia de modo.',
   },
 ];
-
-const NOTIFY_MODES: Choice<NotifyMode>[] = [
-  {
-    value: 'all',
-    title: 'Resultados nuevos y bajadas de precio',
-    text: 'Un aviso por búsqueda cuando encuentra algo nuevo, con el resultado de mayor puntuación.',
-  },
-  {
-    value: 'ideal',
-    title: 'Solo precio ideal',
-    text: 'Solo lo que está en el precio ideal de la búsqueda o por debajo. Las búsquedas sin precio ideal no avisan.',
-  },
-  {
-    value: 'off',
-    title: 'Sin avisos',
-    text: 'Los resultados se ven solo en el panel.',
-  },
-];
-
-/** Opciones excluyentes en tarjetas, con la recomendada marcada. */
-function ChoiceList<T extends string>({
-  name,
-  legend,
-  hint,
-  options,
-  value,
-  onChange,
-}: {
-  name: string;
-  legend: string;
-  hint?: string;
-  options: Choice<T>[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <fieldset>
-      <legend className="text-sm font-semibold">{legend}</legend>
-      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
-      <div className="mt-3 space-y-2">
-        {options.map((m) => {
-          const checked = value === m.value;
-          return (
-            <label
-              key={m.value}
-              className={cx(
-                'relative flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors duration-200',
-                checked ? 'border-border-strong bg-bg' : 'border-border hover:border-muted',
-              )}
-            >
-              <input
-                type="radio"
-                name={name}
-                value={m.value}
-                checked={checked}
-                onChange={() => onChange(m.value)}
-                className="mt-0.5 size-4 shrink-0 accent-[var(--color-fg)]"
-              />
-              <span>
-                <span className="flex items-center gap-2 text-sm font-semibold">
-                  {m.title}
-                  {m.recommended && <Badge tone="brand">Recomendado</Badge>}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted">{m.text}</span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -289,16 +212,20 @@ export function Settings() {
         </Section>
 
         <Section
-          title="Notificaciones"
+          title="Avisos de Windows"
           description="Avisos de Windows cuando una búsqueda automática termina. Al hacer clic se abren sus resultados. “Probar ahora” no avisa: el resultado ya se ve en el panel."
         >
           <ChoiceList
             name="notifyMode"
             legend="Avisarme de"
-            options={NOTIFY_MODES}
+            options={NOTIFY_CHOICES}
             value={form.notifyMode}
             onChange={(v) => set('notifyMode', v)}
           />
+        </Section>
+
+        <Section title="Telegram" description="Recibe los avisos en el celular y controla el bot con comandos.">
+          <TelegramSettings />
         </Section>
 
         <Section title="Frecuencia y límites" description="Protegen tu cuenta: Facebook puede bloquear patrones demasiado frecuentes.">

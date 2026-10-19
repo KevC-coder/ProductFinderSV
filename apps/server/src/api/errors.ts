@@ -29,6 +29,7 @@ const FIELD_LABELS: Record<string, string> = {
   watchers: 'Búsquedas',
   format: 'Formato del archivo',
   version: 'Versión del archivo',
+  token: 'Token',
 };
 
 function fieldName(e: FastifySchemaValidationError): string {
@@ -87,7 +88,9 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (err.validation?.length) {
       return reply.code(400).send({ error: describeError(err.validation[0]!) });
     }
-    if (err.statusCode && err.statusCode < 500) {
+    // Errores pensados para el usuario: los 4xx y los que se marcan con expose (p. ej. un 502
+    // "no se pudo conectar con Telegram") llevan un mensaje en español que se muestra tal cual.
+    if (err.statusCode && (err.statusCode < 500 || (err as { expose?: boolean }).expose)) {
       return reply.code(err.statusCode).send({ error: err.message });
     }
     req.log.error(err);

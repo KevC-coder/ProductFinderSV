@@ -2,7 +2,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { transaction } from '../db/database.js';
 import type { MatchFilter } from '../db/matches.js';
-import type { Settings } from '../db/settings.js';
+import { publicSettings, type Settings } from '../db/settings.js';
 import type { Store } from '../db/store.js';
 import type { Autostart } from '../desktop/autostart.js';
 import type { MatchStatus, Watcher, WatcherInput } from '../domain/types.js';
@@ -10,6 +10,8 @@ import { PAUSED_RUN_MESSAGE, RunRefusedError, type Bot } from '../scheduler/bot.
 import { APP_VERSION, VERSION_HEADER } from '../version.js';
 import { registerErrorHandler } from './errors.js';
 import { registerEvents } from './events.js';
+import { registerTelegramRoutes } from './telegram.js';
+import type { TelegramService } from '../telegram/service.js';
 import {
   autostartBody,
   createWatcherBody,
@@ -35,6 +37,8 @@ export interface AppDeps {
   webDir?: string;
   /** Solo en la app de escritorio (Windows): integración con el sistema. */
   desktop?: { autostart: Autostart; service?: ServiceInfo };
+  /** Avisos y comandos por Telegram. Sin él, las rutas /api/telegram no existen. */
+  telegram?: TelegramService;
 }
 
 /** Sirve el panel y devuelve index.html para cualquier ruta que no sea de la API. */
@@ -71,7 +75,7 @@ function invalidPriceRange(w: Partial<WatcherInput>): string | null {
   return null;
 }
 
-export function buildApp({ store, bot, logger = false, webDir, onShutdown, desktop }: AppDeps): FastifyInstance {
+export function buildApp({ store, bot, logger = false, webDir, onShutdown, desktop, telegram }: AppDeps): FastifyInstance {
   // removeAdditional: false → los campos desconocidos dan 400 en vez de ignorarse en silencio.
   // forceCloseConnections: al cerrar se cortan también las conexiones abiertas (como la de
   // eventos en vivo del panel); si no, el cierre esperaría para siempre.
@@ -83,6 +87,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
 
   registerErrorHandler(app);
   registerEvents(app, bot);
+  if (telegram) registerTelegramRoutes(app, telegram);
   if (webDir) registerWeb(app, webDir);
 
   // ---- Estado, sesión y bot -----------------------------------------------------------
@@ -252,7 +257,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
     async (req) => store.runs.list(req.query),
   );
 
-  app.get('/api/settings', async () => store.settings.all());
+  app.get('/api/settings', async () => publicSettings(store.settings.all()));
 
   app.patch<{ Body: Partial<Settings> }>(
     '/api/settings',
@@ -262,7 +267,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       if (merged.maxBackoffMinutes < merged.errorBackoffMinutes) {
         return reply.code(400).send({ error: 'La espera máxima tras errores debe ser mayor que la inicial' });
       }
-      return store.settings.set(req.body);
+      return publicSettings(store.settings.set(req.body));
     },
   );
 

@@ -172,3 +172,16 @@ export interface WatchersExport {
   exportedAt: string;
   watchers: WatcherInput[];
 }
+
+/** Integración con Telegram (el token nunca llega al panel). */
+export interface TelegramState {
+  configured: boolean;
+  botUsername: string | null;
+  linked: boolean;
+  chatName: string | null;
+  notifyMode: NotifyMode;
+  /** Vinculación en curso: enlace de un solo uso que se abre en Telegram. */
+  linking: { url: string; code: string; expiresAt: string } | null;
+  /** Último problema de conexión con Telegram. */
+  error: string | null;
+}

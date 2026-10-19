@@ -32,11 +32,39 @@ export interface Settings {
    */
   autostartWanted: boolean | null;
 
+  // ---- Telegram (se manejan desde /api/telegram; nunca se devuelven en /api/settings) ----
+  /** Token del bot creado con @BotFather. Solo se guarda en esta PC. */
+  telegramToken: string | null;
+  telegramBotUsername: string | null;
+  /** Chat vinculado: el único que recibe avisos y puede dar órdenes al bot. */
+  telegramChatId: string | null;
+  telegramChatName: string | null;
+  /** Qué resultados se avisan por Telegram (aparte de los avisos de Windows). */
+  telegramNotifyMode: NotifyMode;
+
   // ---- Estado interno (solo lectura desde la API) ----
   /** Estado de la sesión de Facebook según la última corrida o login. */
   sessionState: SessionState | 'unknown';
   /** Hasta cuándo está pausado el bot (ISO) tras un checkpoint/captcha. */
   pausedUntil: string | null;
+}
+
+/** Ajustes internos que no se exponen en /api/settings (secretos o con su propia API). */
+const PRIVATE_KEYS = [
+  'autostartWanted',
+  'telegramToken',
+  'telegramBotUsername',
+  'telegramChatId',
+  'telegramChatName',
+  'telegramNotifyMode',
+] as const satisfies readonly (keyof Settings)[];
+type PrivateKey = (typeof PRIVATE_KEYS)[number];
+
+/** Lo que ve el panel en /api/settings: sin el token de Telegram ni otros datos internos. */
+export function publicSettings(s: Settings): Omit<Settings, PrivateKey> {
+  const out: Partial<Settings> = { ...s };
+  for (const k of PRIVATE_KEYS) delete out[k];
+  return out as Omit<Settings, PrivateKey>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -53,6 +81,11 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyMode: 'all',
   riskNoticeAccepted: false,
   autostartWanted: null,
+  telegramToken: null,
+  telegramBotUsername: null,
+  telegramChatId: null,
+  telegramChatName: null,
+  telegramNotifyMode: 'all',
   sessionState: 'unknown',
   pausedUntil: null,
 };

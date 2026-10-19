@@ -17,6 +17,13 @@ Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta
 - **Inicio con Windows**: se elige en la bienvenida (viene marcado) y se cambia en *Ajustes → Aplicación* o en el menú del icono. Con él activado, ProductFinderSV arranca en segundo plano cada vez que inicias sesión en Windows, sin abrir la ventana. Solo busca con la sesión de Windows iniciada.
 - **Se recupera solo**: si el servicio se cae o deja de responder, se reinicia automáticamente (en *Ajustes → Aplicación* se ve desde cuándo corre y cuántas veces se reinició). En el Administrador de tareas verás dos procesos *ProductFinderSV*: el servicio y su supervisor.
 - **Avisos**: cuando una búsqueda automática encuentra resultados nuevos o una bajada de precio, Windows muestra un aviso; al hacer clic se abren esos resultados. En *Ajustes → Notificaciones* eliges todos, solo precio ideal o ninguno.
+- **Telegram (opcional)**: recibe los avisos en el celular y controla el bot con comandos. En *Ajustes → Telegram*:
+  1. En Telegram abre **@BotFather**, envíale `/newbot`, elige un nombre y un usuario (termina en "bot") y copia el token que te da.
+  2. Pega el token y pulsa *Guardar token*.
+  3. Pulsa *Vincular mi Telegram* y abre el enlace (o, desde el celular, envía al bot el `/start …` que se muestra).
+  4. Listo: cada búsqueda automática con novedades envía un mensaje con la foto del mejor resultado y hasta 5 enlaces a Facebook (eliges todo, solo precio ideal o nada), y te avisa si Facebook pide una verificación o se cierra la sesión. Desde ese chat puedes enviar `/estado`, `/pausar`, `/reanudar` y `/ayuda`; el bot ignora a cualquier otra persona.
+
+  Cada PC necesita **su propio bot** (si dos instalaciones usan el mismo token, Ajustes lo avisa). Los avisos pasan por los servidores de Telegram; el token se guarda solo en tu PC.
 - **Compartir búsquedas**: en *Búsquedas → Exportar* se descarga un `.json` con tus criterios (sin resultados ni datos de tu cuenta); tu amigo lo carga con *Importar*.
 - **Actualizar**: descarga el nuevo `.exe` y ábrelo; reemplaza la versión anterior y conserva tus búsquedas y resultados.
 - **Desinstalar**: *Configuración de Windows → Aplicaciones → ProductFinderSV → Desinstalar*. Pregunta si también quieres borrar tus datos (búsquedas, resultados y la sesión de Facebook de la app, en `%LOCALAPPDATA%\productFindersv`). Si la entrada no aparece (versiones anteriores), abre una vez el `.exe` nuevo para que se registre.
@@ -107,7 +114,7 @@ Pantallas del panel:
 - **Resultados** — tarjetas con foto, precio, puntuación e insignias (nuevo, precio ideal, bajó de precio, descripción sin revisar); filtros por búsqueda, estado, precio y orden; detalle con descripción e historial de precio.
 - **Búsquedas** — crear, editar, activar/pausar, "Probar ahora", eliminar, exportar e importar.
 - **Actividad** — registro de cada corrida.
-- **Ajustes** — sesión de Facebook, interruptor del bot, modo del navegador, notificaciones, límites de frecuencia, manejo de errores e inicio con Windows.
+- **Ajustes** — sesión de Facebook, interruptor del bot, modo del navegador, avisos de Windows, Telegram, límites de frecuencia, manejo de errores e inicio con Windows.
 
 El panel se actualiza en vivo (Server-Sent Events): avisa cuando una búsqueda termina con resultados nuevos o si Facebook pide verificación.
 
@@ -138,6 +145,9 @@ Abre http://localhost:5173 (Vite con recarga instantánea; reenvía `/api` al pu
 | GET | `/api/runs` | Registro de corridas |
 | GET / PATCH | `/api/settings` | Ajustes del bot (ver tabla abajo) |
 | POST | `/api/scheduler/resume` | Quitar la pausa automática tras una verificación de Facebook |
+| GET / PATCH / DELETE | `/api/telegram` | Estado del bot de Telegram (nunca el token), modo de avisos `{ "notifyMode": "ideal" }`, desvincular |
+| PUT | `/api/telegram/token` | Guardar el token `{ "token": "…" }` (se valida con Telegram) |
+| POST | `/api/telegram/link` · `/api/telegram/test` | Enlace de vinculación de un solo uso · mensaje de prueba |
 | GET / PUT | `/api/system/autostart` | Inicio con Windows `{ "enabled": true }` (solo en el ejecutable) |
 | POST | `/api/system/shutdown` | Cerrar el servicio |
 | GET | `/api/events` | Eventos en vivo (SSE): `run:started`, `run:finished`, `session:changed` |

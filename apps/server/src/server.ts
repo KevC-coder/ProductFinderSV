@@ -9,6 +9,7 @@ import { startTray } from './desktop/tray.js';
 import { notifyRun } from './notifier/notification.js';
 import { createWindowsNotifier } from './notifier/windows-toast.js';
 import { Bot } from './scheduler/bot.js';
+import { TelegramService } from './telegram/service.js';
 import { createPlaywrightScraper } from './scraper/scraper.js';
 import { APP_VERSION } from './version.js';
 
@@ -56,12 +57,30 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   if (opts.logFile) fs.mkdirSync(path.dirname(opts.logFile), { recursive: true });
   const scraper = createPlaywrightScraper({ mode: () => store.settings.get('browserMode') });
   const bot = new Bot(store, scraper);
+  const telegram = new TelegramService({
+    store,
+    getStatus: () => {
+      const s = bot.status();
+      return {
+        sessionState: s.sessionState,
+        schedulerEnabled: s.schedulerEnabled,
+        pausedUntil: s.pausedUntil,
+        searching: s.searchingWatcherId !== null,
+        nextRun: s.nextRun,
+        newMatches: store.matches.countByStatus().new,
+        activeWatchers: store.watchers.countActive(),
+      };
+    },
+    // `app` se crea más abajo; el servicio solo registra después de arrancar.
+    log: { info: (o, m) => app.log.info(o, m), warn: (o, m) => app.log.warn(o, m) },
+  });
 
   let stopping: Promise<void> | null = null;
   const stop = () =>
     (stopping ??= (async () => {
       stopTray?.();
       bot.stop();
+      await telegram.stop();
       await app.close();
       store.db.close();
     })());
@@ -73,6 +92,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     logger: opts.logFile ? { level: 'info', file: opts.logFile } : true,
     webDir,
     desktop: autostart ? { autostart, service: opts.service } : undefined,
+    telegram,
     onShutdown: async () => {
       // Red de seguridad: si algo bloquea el cierre ordenado, salir igual.
       setTimeout(() => process.exit(0), 5000).unref();
@@ -95,9 +115,12 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
       'corrida terminada',
     );
     // "Probar ahora" ya muestra el resultado en el panel; los avisos son para las corridas automáticas.
-    if (notifier && !s.manual) {
-      notifyRun(store, notifier, s).catch((err) => app.log.warn({ err }, 'no se pudo mostrar el aviso de Windows'));
-    }
+    if (s.manual) return;
+    if (notifier) notifyRun(store, notifier, s).catch((err) => app.log.warn({ err }, 'no se pudo mostrar el aviso de Windows'));
+    telegram.notifyRun(s).catch((err) => app.log.warn({ err: String(err) }, 'no se pudo enviar el aviso de Telegram'));
+  });
+  bot.on('session:changed', (state) => {
+    telegram.notifySession(state).catch((err) => app.log.warn({ err: String(err) }, 'no se pudo enviar la alerta de Telegram'));
   });
 
   // Solo 127.0.0.1: el panel no debe ser accesible desde otros equipos de la red.
@@ -116,6 +139,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     store.settings.set({ riskNoticeAccepted: true });
   }
   bot.start();
+  telegram.start();
   if (desktopExe) {
     stopTray = startTray({ exePath: desktopExe, port }, (err) => app.log.warn({ err }, 'icono de la bandeja'));
   }
