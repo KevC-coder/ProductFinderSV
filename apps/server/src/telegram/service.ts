@@ -12,7 +12,7 @@ import {
   type TelegramMessage,
   type TelegramUpdate,
 } from './api.js';
-import { COMMANDS, HELP_TEXT, runMessage, sessionAlert, statusText, type StatusSnapshot } from './format.js';
+import { COMMANDS, escapeHtml, HELP_TEXT, runMessage, sessionAlert, statusText, type StatusSnapshot } from './format.js';
 
 /** Lo que el panel muestra de la integración (nunca incluye el token). */
 export interface TelegramState {
@@ -205,6 +205,9 @@ export class TelegramService {
   }
 
   async sendTest(): Promise<void> {
+    if (this.tokenRejected) {
+      throw new TelegramSetupError('Telegram ya no acepta el token del bot (¿lo revocaste en @BotFather?). Pega el token nuevo.', 409);
+    }
     if (!this.isLinked()) throw new TelegramSetupError('Primero vincula tu chat de Telegram.', 409);
     await this.sendToLinked(
       '<b>Mensaje de prueba de ProductFinderSV</b>\nSi lo ves, los avisos de Telegram funcionan.\n\n' + HELP_TEXT,
@@ -352,9 +355,11 @@ export class TelegramService {
     // Solo chats privados: en un grupo cualquier miembro podría dar órdenes, y si Telegram
     // lo convierte en supergrupo cambia de id y los avisos dejarían de llegar.
     if (msg.chat.type !== 'private') {
+      // El código ya lo vio todo el grupo: deja de valer.
+      this.linking = null;
       await this.reply(
         msg.chat.id,
-        `Vincúlame desde un chat privado: abre @${this.settings.get('telegramBotUsername') ?? ''} y pulsa Iniciar con el enlace del panel.`,
+        `Por seguridad anulé ese código porque se envió en un grupo. Genera otro enlace en Ajustes → Telegram y ábrelo en un chat privado con @${this.settings.get('telegramBotUsername') ?? ''}.`,
       );
       return;
     }
@@ -363,9 +368,10 @@ export class TelegramService {
     const name = chatName(msg.chat);
     if (previous && previous !== String(msg.chat.id)) {
       // Que un cambio de chat nunca pase en silencio para quien recibía los avisos.
-      await this.deliverTo(previous, `ProductFinderSV ahora envía los avisos a otro chat (${name}). Si no fuiste tú, vuelve a vincularlo desde Ajustes en la PC.`).catch(
-        () => {},
-      );
+      await this.deliverTo(
+        previous,
+        `ProductFinderSV ahora envía los avisos a otro chat (${escapeHtml(name)}). Si no fuiste tú, vuelve a vincularlo desde Ajustes en la PC.`,
+      ).catch((err) => this.deps.log.warn({ err: describe(err) }, 'no se pudo avisar al chat anterior del cambio'));
     }
     this.lastSessionAlert = null;
     this.deliveryError = null;
@@ -377,7 +383,13 @@ export class TelegramService {
 
   /** Respuesta a un mensaje recibido (los errores solo se registran). */
   private async reply(chatId: number, text: string): Promise<void> {
-    await this.deliverTo(String(chatId), text).catch((err) => this.deps.log.warn({ err: describe(err) }, 'no se pudo responder en Telegram'));
+    try {
+      await this.deliverTo(String(chatId), text);
+      // Si se pudo responder al chat vinculado, ese chat vuelve a funcionar (p. ej. lo desbloqueó).
+      if (this.isLinkedChat(chatId)) this.deliveryError = null;
+    } catch (err) {
+      this.deps.log.warn({ err: describe(err) }, 'no se pudo responder en Telegram');
+    }
   }
 
   /** Mensaje de texto al chat vinculado. Los errores se lanzan. */

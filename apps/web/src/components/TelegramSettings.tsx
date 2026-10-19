@@ -84,6 +84,9 @@ export function TelegramSettings() {
   const toast = useToast();
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [changingToken, setChangingToken] = useState(false);
+  // Al cambiar de paso desaparece el control con foco: se lleva el foco a la acción siguiente.
+  const [focusNext, setFocusNext] = useState<'link' | 'token' | null>(null);
+  const telegramLink = useRef<HTMLAnchorElement>(null);
 
   const query = useQuery({
     queryKey: ['telegram'],
@@ -96,13 +99,20 @@ export function TelegramSettings() {
   const tokenSaved = (s: TelegramState) => {
     saved(s);
     setChangingToken(false);
+    setFocusNext(s.linked ? null : 'link');
     toast({
       tone: 'success',
       title: `Bot @${s.botUsername} listo`,
       body: s.linked ? 'Sigue vinculado con tu chat.' : 'Ahora vincula tu chat de Telegram.',
     });
   };
-  const link = useMutation({ mutationFn: api.linkTelegram, onSuccess: saved });
+  const link = useMutation({
+    mutationFn: api.linkTelegram,
+    onSuccess: (s) => {
+      saved(s);
+      toast({ tone: 'info', title: 'Enlace listo', body: 'Ábrelo en Telegram y pulsa Iniciar.' });
+    },
+  });
   const mode = useMutation({
     mutationFn: api.setTelegramMode,
     onSuccess: saved,
@@ -112,6 +122,8 @@ export function TelegramSettings() {
     mutationFn: api.testTelegram,
     onSuccess: () => toast({ tone: 'success', title: 'Mensaje de prueba enviado', body: 'Revisa tu Telegram.' }),
     onError: (e) => toast({ tone: 'error', title: 'No se pudo enviar el mensaje de prueba', body: e.message }),
+    // El envío puede descubrir un problema (bot bloqueado, token revocado) o confirmar que se resolvió.
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['telegram'] }),
   });
   const disconnect = useMutation({
     mutationFn: api.disconnectTelegram,
@@ -119,12 +131,18 @@ export function TelegramSettings() {
       saved(s);
       setConfirmDisconnect(false);
       setChangingToken(false);
+      setFocusNext('token');
       toast({ tone: 'info', title: 'Telegram desvinculado' });
     },
   });
 
   // Aviso cuando el usuario termina de vincular desde Telegram.
   const s = query.data;
+  const linkingCode = s?.linking?.code;
+  useEffect(() => {
+    // Los enlaces no reciben autoFocus en React: se enfoca a mano al aparecer.
+    if (linkingCode) telegramLink.current?.focus();
+  }, [linkingCode]);
   const wasLinked = useRef<boolean | null>(null);
   useEffect(() => {
     if (!s) return;
@@ -161,7 +179,7 @@ export function TelegramSettings() {
             <li>Elige un nombre y un usuario para tu bot (el usuario termina en “bot”).</li>
             <li>Copia el token que te da y pégalo aquí.</li>
           </ol>
-          <TokenForm onSaved={tokenSaved} />
+          <TokenForm onSaved={tokenSaved} autoFocus={focusNext === 'token'} />
         </>
       ) : showTokenForm ? (
         <>
@@ -170,8 +188,13 @@ export function TelegramSettings() {
             <code className="font-mono">/token</code> o <code className="font-mono">/revoke</code>). Si es del mismo bot, tu chat
             sigue vinculado.
           </p>
-          <TokenForm onSaved={tokenSaved} autoFocus submitLabel="Guardar token nuevo" />
-          {!s.tokenRejected && (
+          {/* Solo se enfoca si el usuario lo pidió; si aparece solo (token revocado) no roba el foco. */}
+          <TokenForm onSaved={tokenSaved} autoFocus={changingToken} submitLabel="Guardar token nuevo" />
+          {s.tokenRejected ? (
+            <Button size="sm" variant="ghost" icon={<Unlink className="size-3.5" />} onClick={() => setConfirmDisconnect(true)}>
+              Dejar de usar Telegram
+            </Button>
+          ) : (
             <Button size="sm" variant="ghost" onClick={() => setChangingToken(false)}>
               Cancelar
             </Button>
@@ -183,7 +206,13 @@ export function TelegramSettings() {
             Bot <span className="font-semibold">@{s.botUsername}</span> listo. Ahora vincula tu chat para recibir los avisos.
           </p>
           {!s.linking ? (
-            <Button variant="primary" icon={<Send className="size-4" />} onClick={() => link.mutate()} loading={link.isPending}>
+            <Button
+              variant="primary"
+              icon={<Send className="size-4" />}
+              onClick={() => link.mutate()}
+              loading={link.isPending}
+              autoFocus={focusNext === 'link'}
+            >
               Vincular mi Telegram
             </Button>
           ) : (
@@ -191,7 +220,7 @@ export function TelegramSettings() {
               <p className="text-sm">
                 Abre este enlace en un chat privado de Telegram y pulsa <span className="font-semibold">Iniciar</span>:
               </p>
-              <a href={s.linking.url} target="_blank" rel="noreferrer" className={LINK_BUTTON} autoFocus>
+              <a ref={telegramLink} href={s.linking.url} target="_blank" rel="noreferrer" className={LINK_BUTTON}>
                 Abrir en Telegram <ExternalLink className="size-4" />
               </a>
               <p className="text-xs text-muted">

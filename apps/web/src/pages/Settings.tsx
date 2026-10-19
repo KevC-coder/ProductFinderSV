@@ -148,7 +148,7 @@ export function Settings() {
               onClick={() => {
                 // Los límites recomendados; el interruptor del bot y los avisos quedan como estén.
                 const { schedulerEnabled: _on, notifyMode: _notify, ...recommended } = DEFAULTS;
-                setEdits(recommended);
+                setEdits((e) => ({ ...e, ...recommended }));
               }}
             >
               Valores recomendados

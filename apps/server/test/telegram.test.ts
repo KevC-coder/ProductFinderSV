@@ -168,13 +168,21 @@ test('vincular: solo desde un chat privado, y el chat anterior se entera del cam
   };
   await tg.handleUpdate(group);
   assert.equal(store.settings.get('telegramChatId'), '555');
-  assert.match(String(calls.at(-1)?.params.text), /chat privado/);
-  assert.ok(tg.state().linking, 'el código sigue valiendo');
+  assert.match(String(calls.at(-1)?.params.text), /anulé ese código/);
+  // Lo vio todo el grupo: otro miembro no puede usarlo por privado.
+  await tg.handleUpdate(message(`/start ${link.code}`, 777));
+  assert.equal(store.settings.get('telegramChatId'), '555');
+  assert.equal(tg.state().linking, null);
 
-  await tg.handleUpdate(message(`/start ${link.code}`, 888));
+  // Revincular desde otro chat privado: el anterior se entera (el nombre va escapado).
+  const again = tg.startLinking();
+  const other = message(`/start ${again.code}`, 888);
+  other.message!.chat.first_name = 'Kevin <3';
+  other.message!.chat.last_name = undefined;
+  await tg.handleUpdate(other);
   assert.equal(store.settings.get('telegramChatId'), '888');
   const toOld = calls.find((c) => c.method === 'sendMessage' && c.params.chat_id === '555');
-  assert.match(String(toOld?.params.text), /otro chat \(Ana López\)/);
+  assert.match(String(toOld?.params.text), /otro chat \(Kevin &lt;3\)/);
   await tg.stop();
 });
 
@@ -387,7 +395,7 @@ test('cliente de la API: nunca envía surrogates sueltos', async () => {
 });
 
 test('errores al enviar: quedan visibles hasta que vuelve a funcionar; un 401 pide el token nuevo', async () => {
-  const { tg, store } = await linked();
+  const { tg, store, push } = await linked();
   let fail: TelegramError | null = new TelegramError(403, 'Forbidden: bot was blocked by the user');
   const api = (tg as unknown as { api: TelegramApi }).api;
   const original = api.sendMessage;
@@ -397,6 +405,10 @@ test('errores al enviar: quedan visibles hasta que vuelve a funcionar; un 401 pi
   };
   await assert.rejects(tg.notifySession('checkpoint'));
   assert.match(tg.state().error!, /bloqueaste/);
+  // El long poll sigue funcionando con el bot bloqueado: un lote vacío no borra el aviso.
+  push([]);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(tg.state().error!, /bloqueaste/);
   // No se marcó como avisado: se reintenta en la próxima corrida.
   fail = null;
   await tg.notifySession('checkpoint');
@@ -405,6 +417,7 @@ test('errores al enviar: quedan visibles hasta que vuelve a funcionar; un 401 pi
   fail = new TelegramError(401, 'Unauthorized');
   await assert.rejects(tg.sendTest(), /token/);
   assert.equal(tg.state().tokenRejected, true);
+  await assert.rejects(tg.sendTest(), /Pega el token nuevo/);
   assert.throws(() => tg.startLinking(), /token nuevo/);
   // Un token nuevo del mismo bot conserva el chat vinculado.
   fail = null;
