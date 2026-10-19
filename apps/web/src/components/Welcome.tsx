@@ -1,8 +1,11 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, HardDrive, KeyRound, ShieldAlert, UserRound } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { navigate, useUpdateSettings } from '../lib/hooks';
+import { api } from '../lib/api';
+import { navigate, useStatus } from '../lib/hooks';
 import { Logo } from './brand/Logo';
-import { Button, ErrorNote } from './ui';
+import { useToast } from './Toasts';
+import { Button, ErrorNote, Toggle } from './ui';
 
 const NOTICES: { icon: ReactNode; title: string; text: string }[] = [
   {
@@ -30,12 +33,34 @@ const NOTICES: { icon: ReactNode; title: string; text: string }[] = [
 const STEPS = ['Aceptar este aviso', 'Conectar Facebook', 'Crear tu primera búsqueda'];
 
 /**
- * Pantalla de primer arranque: aviso de riesgos que se acepta una vez. Los pasos siguientes
- * (conectar Facebook y crear la primera búsqueda) los guía la tarjeta "Para empezar" de Inicio.
+ * Pantalla de primer arranque: aviso de riesgos que se acepta una vez y, en la app de
+ * escritorio, si arrancar con Windows. Los pasos siguientes (conectar Facebook y crear la
+ * primera búsqueda) los guía la tarjeta "Para empezar" de Inicio.
  */
 export function Welcome() {
   const [accepted, setAccepted] = useState(false);
-  const save = useUpdateSettings();
+  const [startWithWindows, setStartWithWindows] = useState(true);
+  const desktop = !!useStatus().data?.desktop;
+  const qc = useQueryClient();
+  const toast = useToast();
+
+  const save = useMutation({
+    mutationFn: async () => {
+      // Si falla el inicio con Windows no se bloquea la bienvenida: se avisa y se puede activar en Ajustes.
+      let autostartFailed = false;
+      if (desktop) await api.setAutostart(startWithWindows).catch(() => (autostartFailed = true));
+      const saved = await api.updateSettings({ riskNoticeAccepted: true });
+      return { saved, autostartFailed };
+    },
+    onSuccess: ({ saved, autostartFailed }) => {
+      qc.setQueryData(['settings'], saved);
+      void qc.invalidateQueries({ queryKey: ['autostart'] });
+      if (autostartFailed) {
+        toast({ tone: 'error', title: 'No se pudo configurar el inicio con Windows', body: 'Puedes activarlo en Ajustes → Aplicación.' });
+      }
+      navigate('inicio');
+    },
+  });
 
   return (
     <div className="bg-grid min-h-screen px-4 py-8 md:py-14">
@@ -75,6 +100,17 @@ export function Welcome() {
           </ol>
         </div>
 
+        {desktop && (
+          <div className="mt-7 rounded-card border border-border p-4">
+            <Toggle
+              checked={startWithWindows}
+              onChange={setStartWithWindows}
+              label="Iniciar ProductFinderSV con Windows"
+              description="Arranca en segundo plano cada vez que inicias sesión en Windows, con su icono junto al reloj. Esté activado o no, ProductFinderSV sigue buscando aunque cierres la ventana; para detenerlo usa “Cerrar ProductFinderSV”. Puedes cambiarlo después en Ajustes o en ese icono."
+            />
+          </div>
+        )}
+
         <label className="mt-7 flex min-h-11 cursor-pointer items-start gap-3 text-sm">
           <input
             type="checkbox"
@@ -96,7 +132,7 @@ export function Welcome() {
           className="mt-5 w-full sm:w-auto"
           disabled={!accepted}
           loading={save.isPending}
-          onClick={() => save.mutate({ riskNoticeAccepted: true }, { onSuccess: () => navigate('inicio') })}
+          onClick={() => save.mutate()}
         >
           Aceptar y continuar <ArrowRight className="size-4" />
         </Button>

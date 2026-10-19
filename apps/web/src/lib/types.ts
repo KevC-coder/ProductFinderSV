@@ -135,6 +135,8 @@ export interface Status {
   canShutdown: boolean;
   /** Corre como app de escritorio de Windows (bandeja, inicio con Windows). */
   desktop: boolean;
+  /** Servicio en segundo plano (solo app de escritorio): desde cuándo corre y reinicios automáticos. */
+  service: { since: string; restarts: number } | null;
   sessionState: SessionState;
   schedulerEnabled: boolean;
   pausedUntil: string | null;
@@ -169,4 +171,19 @@ export interface WatchersExport {
   version: number;
   exportedAt: string;
   watchers: WatcherInput[];
+}
+
+/** Integración con Telegram (el token nunca llega al panel). */
+export interface TelegramState {
+  configured: boolean;
+  botUsername: string | null;
+  linked: boolean;
+  chatName: string | null;
+  notifyMode: NotifyMode;
+  /** Vinculación en curso: enlace de un solo uso que se abre en Telegram. */
+  linking: { url: string; code: string; expiresAt: string } | null;
+  /** Telegram dejó de aceptar el token (revocado): hay que pegar el nuevo. */
+  tokenRejected: boolean;
+  /** Problema actual con Telegram. */
+  error: string | null;
 }

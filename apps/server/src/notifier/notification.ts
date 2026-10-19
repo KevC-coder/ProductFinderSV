@@ -1,6 +1,6 @@
 import type { MatchView } from '../db/matches.js';
 import type { Store } from '../db/store.js';
-import type { Watcher } from '../domain/types.js';
+import type { NotifyMode, Watcher } from '../domain/types.js';
 import type { RunSummary } from '../runner/run-watcher.js';
 
 /** Aviso al usuario, independiente de cómo se muestre (Windows, o Telegram en el futuro). */
@@ -28,14 +28,22 @@ export function formatPrice(price: number | null): string {
 
 const byScore = (a: MatchView, b: MatchView) => b.score - a.score;
 
+/**
+ * Acorta un texto a `max` caracteres con "…" sin partir emojis ni otros caracteres de dos
+ * unidades (un surrogate suelto hace que Telegram o Windows rechacen el aviso entero).
+ */
+export function truncateText(text: string, max: number): string {
+  const chars = Array.from(text.replace(/\s+/g, ' ').trim());
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join('');
+}
+
 function describe(m: MatchView): string {
   const l = m.listing;
   let price = formatPrice(l.price);
   if (l.previousPrice != null && l.price != null && l.previousPrice > l.price) {
     price += ` (antes ${formatPrice(l.previousPrice)})`;
   }
-  const title = (l.title ?? 'Sin título').replace(/\s+/g, ' ').trim();
-  const short = title.length > 80 ? `${title.slice(0, 79)}…` : title;
+  const short = truncateText(l.title ?? 'Sin título', 80);
   return `${price} · ${short}${m.isIdealPrice ? ' · Precio ideal' : ''}`;
 }
 
@@ -61,6 +69,30 @@ export function buildRunNotification(
   return { title: `${watcher.name}: ${parts.join(' · ')}`, lines, route: `resultados?watcher=${watcher.id}` };
 }
 
+export interface RunNews {
+  watcher: Watcher;
+  /** Resultados nuevos y bajadas de precio que hay que avisar, ya filtrados por el modo. */
+  fresh: MatchView[];
+  drops: MatchView[];
+}
+
+/**
+ * Qué avisar de una corrida según el modo (Windows y Telegram tienen el suyo). No incluye
+ * resultados que el usuario ya descartó. null si no hay nada.
+ */
+export function pickRunNews(store: Store, run: RunSummary, mode: NotifyMode): RunNews | null {
+  if (mode === 'off' || run.status !== 'ok') return null;
+  const watcher = store.watchers.get(run.watcherId);
+  if (!watcher) return null;
+  const pick = (ids: number[]) =>
+    ids
+      .map((id) => store.matches.get(id))
+      .filter((m): m is MatchView => !!m && m.status !== 'dismissed' && (mode === 'all' || m.isIdealPrice));
+  const fresh = pick(run.newMatchIds);
+  const drops = pick(run.priceDropMatchIds);
+  return fresh.length || drops.length ? { watcher, fresh, drops } : null;
+}
+
 /**
  * Avisa de lo que encontró una corrida según el ajuste notifyMode y marca esos resultados
  * como notificados. No avisa de resultados que el usuario ya descartó.
@@ -71,17 +103,9 @@ export async function notifyRun(
   run: RunSummary,
   now = new Date(),
 ): Promise<Notice | null> {
-  const mode = store.settings.get('notifyMode');
-  if (mode === 'off' || run.status !== 'ok') return null;
-  const watcher = store.watchers.get(run.watcherId);
-  if (!watcher) return null;
-
-  const pick = (ids: number[]) =>
-    ids
-      .map((id) => store.matches.get(id))
-      .filter((m): m is MatchView => !!m && m.status !== 'dismissed' && (mode === 'all' || m.isIdealPrice));
-  const fresh = pick(run.newMatchIds);
-  const drops = pick(run.priceDropMatchIds);
+  const news = pickRunNews(store, run, store.settings.get('notifyMode'));
+  if (!news) return null;
+  const { watcher, fresh, drops } = news;
   const notice = buildRunNotification(watcher, fresh, drops);
   if (!notice) return null;
 

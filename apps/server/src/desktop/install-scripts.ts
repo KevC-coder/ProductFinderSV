@@ -87,11 +87,43 @@ Remove-Item -Path '${UNINSTALL_KEY}' -Recurse -Force
 `;
 }
 
-/** Borra carpetas tras una pausa (el .exe en uso no puede borrarse a sí mismo mientras corre). */
-export function cleanupScript(targets: string[]): string {
+/**
+ * Termina los procesos que queden de ese .exe (supervisor esperando para reiniciar, servicio
+ * colgado), salvo `exceptPid` (quien lo pide). Se usa antes de reemplazar o borrar el .exe:
+ * un supervisor vivo volvería a lanzar el servicio y Windows no deja tocar un .exe en uso.
+ */
+export function stopProcessesScript(opts: { exePath: string; exceptPid: number }): string {
   return `
-Start-Sleep -Seconds 3
-foreach ($t in @(${targets.map(psString).join(', ')})) { Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }
+$exe = ${psString(opts.exePath)}
+for ($i = 0; $i -lt 20; $i++) {
+  $p = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ($_.Path -ieq $exe) -and ($_.Id -ne ${opts.exceptPid}) }
+  if (-not $p) { break }
+  $p | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 500
+}
+`;
+}
+
+/**
+ * Borra las carpetas cuando ya no queda ningún proceso de ProductFinderSV.exe (el
+ * desinstalador y el servicio que se está cerrando): Windows no deja borrar un .exe en uso.
+ * Espera hasta 2 minutos y reintenta el borrado unas veces por si algún archivo sigue tomado.
+ */
+export function cleanupScript(opts: { exePath: string; targets: string[] }): string {
+  return `
+$exe = ${psString(opts.exePath)}
+$deadline = (Get-Date).AddMinutes(2)
+while ((Get-Date) -lt $deadline) {
+  $running = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ($_.Path -ieq $exe) -and ($_.Id -ne $PID) }
+  if (-not $running) { break }
+  Start-Sleep -Seconds 1
+}
+foreach ($t in @(${opts.targets.map(psString).join(', ')})) {
+  for ($i = 0; ($i -lt 5) -and (Test-Path -LiteralPath $t); $i++) {
+    Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $t) { Start-Sleep -Seconds 2 }
+  }
+}
 `;
 }
 

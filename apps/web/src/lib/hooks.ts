@@ -18,7 +18,8 @@ import type {
 export const useStatus = () => useQuery({ queryKey: ['status'], queryFn: api.status, refetchInterval: 30_000 });
 export const useWatchers = () => useQuery({ queryKey: ['watchers'], queryFn: api.watchers, refetchInterval: 60_000 });
 export const useRuns = (limit = 100) => useQuery({ queryKey: ['runs', limit], queryFn: () => api.runs(limit) });
-export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings });
+// Se refresca solo: los ajustes también cambian desde fuera (/pausar por Telegram, la bandeja).
+export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings, refetchInterval: 30_000 });
 export const useMatches = (f: MatchFilter) =>
   useQuery({ queryKey: ['matches', f], queryFn: () => api.matches(f), placeholderData: keepPreviousData });
 export const usePriceHistory = (listingId: string | null) =>

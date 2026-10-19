@@ -2,14 +2,17 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { transaction } from '../db/database.js';
 import type { MatchFilter } from '../db/matches.js';
-import type { Settings } from '../db/settings.js';
+import { publicSettings, type Settings } from '../db/settings.js';
 import type { Store } from '../db/store.js';
 import type { Autostart } from '../desktop/autostart.js';
 import type { MatchStatus, Watcher, WatcherInput } from '../domain/types.js';
-import type { Bot } from '../scheduler/bot.js';
+import { PAUSED_RUN_MESSAGE, RunRefusedError, type Bot } from '../scheduler/bot.js';
 import { APP_VERSION, VERSION_HEADER } from '../version.js';
 import { registerErrorHandler } from './errors.js';
 import { registerEvents } from './events.js';
+import { registerLocalOnly } from './local-only.js';
+import { registerTelegramRoutes } from './telegram.js';
+import type { TelegramService } from '../telegram/service.js';
 import {
   autostartBody,
   createWatcherBody,
@@ -34,7 +37,9 @@ export interface AppDeps {
   /** Carpeta con el panel compilado (apps/web/dist). Sin ella solo se sirve la API. */
   webDir?: string;
   /** Solo en la app de escritorio (Windows): integración con el sistema. */
-  desktop?: { autostart: Autostart };
+  desktop?: { autostart: Autostart; service?: ServiceInfo };
+  /** Avisos y comandos por Telegram. Sin él, las rutas /api/telegram no existen. */
+  telegram?: TelegramService;
 }
 
 /** Sirve el panel y devuelve index.html para cualquier ruta que no sea de la API. */
@@ -48,6 +53,17 @@ function registerWeb(app: FastifyInstance, webDir: string): void {
 
 type IdParams = { Params: { id: number } };
 
+/** Servicio en segundo plano (app de escritorio): desde cuándo corre y cuántas veces se reinició solo. */
+export interface ServiceInfo {
+  since: string;
+  restarts: number;
+}
+
+const RUN_REFUSED = {
+  queued: 'La búsqueda ya está en cola',
+  paused: PAUSED_RUN_MESSAGE,
+} as const;
+
 /** Solo los campos editables: lo que se comparte al exportar una búsqueda. */
 function toInput(w: Watcher): WatcherInput {
   return Object.fromEntries(WATCHER_FIELDS.map((k) => [k, w[k]])) as unknown as WatcherInput;
@@ -60,7 +76,7 @@ function invalidPriceRange(w: Partial<WatcherInput>): string | null {
   return null;
 }
 
-export function buildApp({ store, bot, logger = false, webDir, onShutdown, desktop }: AppDeps): FastifyInstance {
+export function buildApp({ store, bot, logger = false, webDir, onShutdown, desktop, telegram }: AppDeps): FastifyInstance {
   // removeAdditional: false → los campos desconocidos dan 400 en vez de ignorarse en silencio.
   // forceCloseConnections: al cerrar se cortan también las conexiones abiertas (como la de
   // eventos en vivo del panel); si no, el cierre esperaría para siempre.
@@ -69,9 +85,11 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
   app.addHook('onSend', async (_req, reply) => {
     reply.header(VERSION_HEADER, APP_VERSION);
   });
+  registerLocalOnly(app);
 
   registerErrorHandler(app);
   registerEvents(app, bot);
+  if (telegram) registerTelegramRoutes(app, telegram);
   if (webDir) registerWeb(app, webDir);
 
   // ---- Estado, sesión y bot -----------------------------------------------------------
@@ -80,6 +98,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
     version: APP_VERSION,
     canShutdown: !!onShutdown,
     desktop: !!desktop,
+    service: desktop?.service ?? null,
     ...bot.status(),
     activeWatchers: store.watchers.countActive(),
     matches: store.matches.countByStatus(),
@@ -112,6 +131,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       { schema: { body: autostartBody } },
       async (req) => {
         await desktop.autostart.setEnabled(req.body.enabled);
+        store.settings.set({ autostartWanted: req.body.enabled });
         return { enabled: await desktop.autostart.isEnabled() };
       },
     );
@@ -200,11 +220,15 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       },
     },
     async (req, reply) => {
-      if (!store.watchers.get(req.params.id)) return reply.code(404).send({ error: 'Búsqueda no encontrada' });
-      const pending = bot.runNow(req.params.id);
-      if (!pending) return reply.code(409).send({ error: 'La búsqueda ya está en cola' });
-      if (req.query.wait) return pending;
-      pending.catch((err) => app.log.error(err, 'corrida falló'));
+      const run = bot.runNow(req.params.id);
+      if ('refused' in run) {
+        if (run.refused === 'not_found') return reply.code(404).send({ error: 'Búsqueda no encontrada' });
+        return reply.code(409).send({ error: RUN_REFUSED[run.refused] });
+      }
+      if (req.query.wait) return run.started;
+      run.started.catch((err) => {
+        if (!(err instanceof RunRefusedError)) app.log.error(err, 'corrida falló');
+      });
       return reply.code(202).send({ queued: true });
     },
   );
@@ -235,7 +259,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
     async (req) => store.runs.list(req.query),
   );
 
-  app.get('/api/settings', async () => store.settings.all());
+  app.get('/api/settings', async () => publicSettings(store.settings.all()));
 
   app.patch<{ Body: Partial<Settings> }>(
     '/api/settings',
@@ -245,7 +269,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       if (merged.maxBackoffMinutes < merged.errorBackoffMinutes) {
         return reply.code(400).send({ error: 'La espera máxima tras errores debe ser mayor que la inicial' });
       }
-      return store.settings.set(req.body);
+      return publicSettings(store.settings.set(req.body));
     },
   );
 

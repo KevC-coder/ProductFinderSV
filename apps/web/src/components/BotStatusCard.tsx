@@ -11,11 +11,16 @@ export function sessionTone(s: Status['sessionState']): Tone {
 
 export const isSearching = (s: Status) => s.searchingWatcherId !== null;
 
+/** Pausa de seguridad tras una verificación de Facebook, aunque el bot esté apagado. */
+export const isSafetyPaused = (s: Status) => !!s.pausedUntil && Date.parse(s.pausedUntil) > Date.now();
+
 /** Resumen en una frase de lo que está haciendo el bot. */
 export function botHeadline(s: Status): string {
   if (isSearching(s)) return 'Buscando en Marketplace…';
   if (s.loggingIn) return 'Esperando que inicies sesión en Facebook…';
-  if (!s.schedulerEnabled) return 'Bot apagado';
+  if (!s.schedulerEnabled) {
+    return isSafetyPaused(s) ? `Bot apagado · en pausa por seguridad hasta ${formatDateTime(s.pausedUntil)}` : 'Bot apagado';
+  }
   if (s.blockedReason === 'logged_out') return 'Conecta Facebook para empezar a buscar';
   if (s.blockedReason === 'paused') return `En pausa por seguridad hasta ${formatDateTime(s.pausedUntil)}`;
   if (s.blockedReason === 'rate_limit') return BLOCKED_LABELS.rate_limit;
@@ -87,9 +92,9 @@ export function BotStatusCard() {
                   Conectar Facebook
                 </Button>
               )}
-              {s.blockedReason === 'paused' && (
+              {isSafetyPaused(s) && (
                 <Button variant="on-dark" icon={<ShieldAlert className="size-4" />} onClick={() => resume.mutate()} loading={resume.isPending}>
-                  Ya lo resolví, reanudar
+                  Ya resolví la verificación, reanudar
                 </Button>
               )}
               {s.schedulerEnabled ? (

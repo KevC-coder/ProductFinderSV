@@ -5,7 +5,7 @@ import { buildSearchUrl } from '../src/scraper/marketplace-search.js';
 import { parseDomCard } from '../src/scraper/parsers/dom.js';
 import { findListingNodes, parseFbJsonText } from '../src/scraper/parsers/fb-json.js';
 import { mergeListings, normalizeListing, parsePriceText } from '../src/scraper/parsers/listing.js';
-import { sessionStateFromUrl } from '../src/scraper/session.js';
+import { hasSessionCookies, sessionStateFromUrl } from '../src/scraper/session.js';
 
 // Estructura similar a la respuesta GraphQL de búsqueda de Marketplace.
 const searchNode = {
@@ -130,4 +130,17 @@ test('sessionStateFromUrl', () => {
   assert.equal(sessionStateFromUrl('https://www.facebook.com/checkpoint/123'), 'checkpoint');
   assert.equal(sessionStateFromUrl('https://www.facebook.com/login/?next=x'), 'logged_out');
   assert.equal(sessionStateFromUrl('https://www.facebook.com/marketplace/search/?query=x'), null);
+  // Verificación en dos pasos y confirmación de identidad cuentan como verificación pendiente.
+  assert.equal(sessionStateFromUrl('https://www.facebook.com/two_step_verification/two_factor/?x=1'), 'checkpoint');
+  assert.equal(sessionStateFromUrl('https://www.facebook.com/auth_platform/codesubmit/'), 'checkpoint');
+  assert.equal(sessionStateFromUrl('https://www.facebook.com/'), null);
+});
+
+test('sesión iniciada solo con c_user y xs', () => {
+  const c = (name: string, value = 'v') => ({ name, value });
+  assert.equal(hasSessionCookies([c('c_user'), c('xs')]), true);
+  // Durante el login Facebook puede poner c_user antes de que la sesión sea válida.
+  assert.equal(hasSessionCookies([c('c_user')]), false);
+  assert.equal(hasSessionCookies([c('c_user', ''), c('xs')]), false);
+  assert.equal(hasSessionCookies([]), false);
 });

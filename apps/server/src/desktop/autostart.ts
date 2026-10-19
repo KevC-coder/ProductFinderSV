@@ -23,6 +23,29 @@ function reg(args: string[]): Promise<{ ok: boolean; stdout: string }> {
   });
 }
 
+/**
+ * Al arrancar el servicio de escritorio, pone de acuerdo la elección guardada en la base
+ * (`wanted`) con la clave del registro:
+ * - Sin elección guardada pero con la clave puesta (instalaciones anteriores a guardarla):
+ *   se toma como elegida, para poder restaurarla más adelante.
+ * - Elegida pero sin clave, en el primer arranque tras instalar (p. ej. reinstaló conservando
+ *   sus datos): se vuelve a crear. En los demás arranques no: si la quitó con otra herramienta,
+ *   se respeta.
+ */
+export async function reconcileAutostart(opts: {
+  wanted: boolean | null;
+  firstStartAfterInstall: boolean;
+  autostart: Autostart;
+}): Promise<{ wanted: boolean | null; restored: boolean }> {
+  const enabled = await opts.autostart.isEnabled();
+  if (opts.wanted === null) return { wanted: enabled ? true : null, restored: false };
+  if (opts.wanted && !enabled && opts.firstStartAfterInstall) {
+    await opts.autostart.setEnabled(true);
+    return { wanted: true, restored: true };
+  }
+  return { wanted: opts.wanted, restored: false };
+}
+
 /** Comando que se registra: el .exe instalado en modo segundo plano (sin abrir la ventana). */
 export const autostartCommand = (exePath: string) => `"${exePath}" --background`;
 

@@ -29,6 +29,21 @@ export interface BotStatus {
   nextRun: { watcherId: number; name: string; at: string } | null;
 }
 
+/** Mensaje para el usuario cuando "Probar ahora" no se permite por la pausa de seguridad. */
+export const PAUSED_RUN_MESSAGE =
+  'El bot está en pausa por seguridad porque Facebook pidió una verificación. Resuélvela y pulsa “Ya resolví la verificación, reanudar” en Inicio o en Ajustes antes de probar.';
+
+/**
+ * Una corrida manual que esperaba en la cola cuando empezó la pausa de seguridad (otra corrida
+ * cayó en una verificación). statusCode 409: la API lo devuelve tal cual al panel.
+ */
+export class RunRefusedError extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super(PAUSED_RUN_MESSAGE);
+  }
+}
+
 /** Resumen de una corrida, indicando si la pidió el usuario ("Probar ahora") o fue automática. */
 export interface FinishedRun extends RunSummary {
   manual: boolean;
@@ -103,7 +118,7 @@ export class Bot extends EventEmitter<BotEvents> {
     const now = this.now();
     if (!s.schedulerEnabled) return 'disabled';
     if (s.sessionState === 'logged_out') return 'logged_out';
-    if (s.pausedUntil && Date.parse(s.pausedUntil) > now.getTime()) return 'paused';
+    if (this.isPaused()) return 'paused';
     if (runsLastHour >= s.maxRunsPerHour) return 'rate_limit';
     const last = this.store.runs.lastFinishedAt();
     if (last && Date.parse(last) + s.minGapSeconds * 1000 > now.getTime()) return 'cooldown';
@@ -125,11 +140,17 @@ export class Bot extends EventEmitter<BotEvents> {
     return { started: this.enqueueRun(due, false) };
   }
 
-  /** "Probar ahora": ignora horario y límites (es una acción explícita del usuario), pero usa la cola. */
-  runNow(watcherId: number): Promise<FinishedRun> | null {
+  /**
+   * "Probar ahora": ignora horario y límites (es una acción explícita del usuario) y usa la
+   * cola. No se permite durante la pausa de seguridad tras una verificación de Facebook:
+   * volver a entrar a Marketplace en ese momento es justo lo que la pausa quiere evitar.
+   */
+  runNow(watcherId: number): { started: Promise<FinishedRun> } | { refused: 'not_found' | 'queued' | 'paused' } {
     const w = this.store.watchers.get(watcherId);
-    if (!w || this.queue.has(watcherJob(w.id))) return null;
-    return this.enqueueRun(w, true);
+    if (!w) return { refused: 'not_found' };
+    if (this.isPaused()) return { refused: 'paused' };
+    if (this.queue.has(watcherJob(w.id))) return { refused: 'queued' };
+    return { started: this.enqueueRun(w, true) };
   }
 
   isQueued(watcherId: number): boolean {
@@ -182,6 +203,12 @@ export class Bot extends EventEmitter<BotEvents> {
 
   // -------------------------------------------------------------------------------------
 
+  /** Pausa de seguridad tras una verificación de Facebook (checkpoint) todavía vigente. */
+  private isPaused(): boolean {
+    const until = this.store.settings.get('pausedUntil');
+    return !!until && Date.parse(until) > this.now().getTime();
+  }
+
   private isBusy(): boolean {
     const q = this.queue.status();
     return q.active !== null || q.pending.length > 0;
@@ -198,6 +225,8 @@ export class Bot extends EventEmitter<BotEvents> {
 
   private enqueueRun(w: Watcher, manual: boolean): Promise<FinishedRun> {
     return this.queue.run(watcherJob(w.id), async () => {
+      // La pausa pudo empezar mientras esperaba en la cola: no volver a entrar a Facebook.
+      if (this.isPaused()) throw new RunRefusedError();
       // Releer por si el usuario la editó mientras esperaba en la cola.
       const watcher = this.store.watchers.get(w.id) ?? w;
       this.emit('run:started', { watcherId: watcher.id });

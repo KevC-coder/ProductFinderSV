@@ -3,10 +3,12 @@ import type {
   Match,
   MatchFilter,
   MatchStatus,
+  NotifyMode,
   Run,
   RunSummary,
   Settings,
   Status,
+  TelegramState,
   Watcher,
   WatcherInput,
   WatchersExport,
@@ -65,6 +67,13 @@ export const api = {
   setMatchStatus: (id: number, status: MatchStatus) => request<Match>('PATCH', `/api/matches/${id}`, { status }),
   priceHistory: (listingId: string) =>
     request<{ price: number; seenAt: string }[]>('GET', `/api/listings/${listingId}/price-history`),
+
+  telegram: () => request<TelegramState>('GET', '/api/telegram'),
+  setTelegramToken: (token: string) => request<TelegramState>('PUT', '/api/telegram/token', { token }),
+  linkTelegram: () => request<TelegramState>('POST', '/api/telegram/link'),
+  setTelegramMode: (notifyMode: NotifyMode) => request<TelegramState>('PATCH', '/api/telegram', { notifyMode }),
+  testTelegram: () => request<void>('POST', '/api/telegram/test'),
+  disconnectTelegram: () => request<TelegramState>('DELETE', '/api/telegram'),
 
   runs: (limit = 100) => request<Run[]>('GET', `/api/runs${query({ limit })}`),
   settings: () => request<Settings>('GET', '/api/settings'),

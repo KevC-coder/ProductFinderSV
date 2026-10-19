@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { cleanupScript, messageBoxScript, registerScript, unregisterScript } from '../src/desktop/install-scripts.js';
+import { cleanupScript, messageBoxScript, registerScript, stopProcessesScript, unregisterScript } from '../src/desktop/install-scripts.js';
 import { trayScript } from '../src/desktop/tray.js';
 import { toastScript, toastXml } from '../src/notifier/windows-toast.js';
 
@@ -33,7 +33,8 @@ const scripts: Record<string, string> = {
   toastSinIcono: toastScript(toastXml({ title: 't', lines: [], route: 'inicio' }, 'http://127.0.0.1:8787/#/inicio'), null),
   register: registerScript({ exePath: exe, version: '0.2.0' }),
   unregister: unregisterScript(),
-  cleanup: cleanupScript([path.win32.dirname(exe), "C:\\Users\\O'Neil\\AppData\\Local\\productFindersv"]),
+  cleanup: cleanupScript({ exePath: exe, targets: [path.win32.dirname(exe), "C:\\Users\\O'Neil\\AppData\\Local\\productFindersv"] }),
+  stopProcesses: stopProcessesScript({ exePath: exe, exceptPid: 4321 }),
   messageBox: messageBoxScript('¿Desinstalar ProductFinderSV?\n\nSe cerrará y "dejará" de buscar.', 'YesNo', 'Question'),
 };
 

@@ -1,13 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { LogIn, Power, RotateCcw } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { sessionTone } from '../components/BotStatusCard';
+import { ChoiceList, NOTIFY_CHOICES, type Choice } from '../components/ChoiceList';
+import { TelegramSettings } from '../components/TelegramSettings';
 import { useToast } from '../components/Toasts';
-import { Badge, Button, Card, ConfirmDialog, cx, Dot, ErrorNote, Field, NumberInput, PageHeader, PageLoader, Toggle } from '../components/ui';
+import { Button, Card, ConfirmDialog, Dot, ErrorNote, Field, NumberInput, PageHeader, PageLoader, Toggle } from '../components/ui';
 import { api } from '../lib/api';
 import { formatDateTime, SESSION_LABELS } from '../lib/format';
 import { useAutostart, useConnectSession, useSettings, useStatus } from '../lib/hooks';
-import type { BrowserMode, EditableSettings, NotifyMode, Settings as SettingsData } from '../lib/types';
+import type { BrowserMode, EditableSettings, Settings as SettingsData } from '../lib/types';
 
 const DEFAULTS: EditableSettings = {
   schedulerEnabled: true,
@@ -43,13 +45,6 @@ const NUMERIC: Record<NumericKey, { label: string; hint: string; suffix: string;
   maxBackoffMinutes: { label: 'Espera máxima tras errores', hint: 'Tope de la espera creciente.', suffix: 'min', min: 15, max: 1440 },
 };
 
-interface Choice<T extends string> {
-  value: T;
-  title: string;
-  text: string;
-  recommended?: boolean;
-}
-
 const BROWSER_MODES: Choice<BrowserMode>[] = [
   {
     value: 'offscreen',
@@ -69,78 +64,6 @@ const BROWSER_MODES: Choice<BrowserMode>[] = [
   },
 ];
 
-const NOTIFY_MODES: Choice<NotifyMode>[] = [
-  {
-    value: 'all',
-    title: 'Resultados nuevos y bajadas de precio',
-    text: 'Un aviso por búsqueda cuando encuentra algo nuevo, con el resultado de mayor puntuación.',
-  },
-  {
-    value: 'ideal',
-    title: 'Solo precio ideal',
-    text: 'Solo lo que está en el precio ideal de la búsqueda o por debajo. Las búsquedas sin precio ideal no avisan.',
-  },
-  {
-    value: 'off',
-    title: 'Sin avisos',
-    text: 'Los resultados se ven solo en el panel.',
-  },
-];
-
-/** Opciones excluyentes en tarjetas, con la recomendada marcada. */
-function ChoiceList<T extends string>({
-  name,
-  legend,
-  hint,
-  options,
-  value,
-  onChange,
-}: {
-  name: string;
-  legend: string;
-  hint?: string;
-  options: Choice<T>[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <fieldset>
-      <legend className="text-sm font-semibold">{legend}</legend>
-      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
-      <div className="mt-3 space-y-2">
-        {options.map((m) => {
-          const checked = value === m.value;
-          return (
-            <label
-              key={m.value}
-              className={cx(
-                'relative flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors duration-200',
-                checked ? 'border-border-strong bg-bg' : 'border-border hover:border-muted',
-              )}
-            >
-              <input
-                type="radio"
-                name={name}
-                value={m.value}
-                checked={checked}
-                onChange={() => onChange(m.value)}
-                className="mt-0.5 size-4 shrink-0 accent-[var(--color-fg)]"
-              />
-              <span>
-                <span className="flex items-center gap-2 text-sm font-semibold">
-                  {m.title}
-                  {m.recommended && <Badge tone="brand">Recomendado</Badge>}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted">{m.text}</span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
-
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <Card className="p-6">
@@ -157,20 +80,18 @@ export function Settings() {
   const connect = useConnectSession();
   const toast = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState<EditableSettings | null>(null);
+  // Solo lo que el usuario cambió: lo demás siempre refleja el servidor (también cambios hechos
+  // desde fuera, como /pausar por Telegram o la bandeja), así "Guardar" nunca los deshace.
+  const [edits, setEdits] = useState<Partial<EditableSettings>>({});
   const [error, setError] = useState<string | null>(null);
 
   const desktop = !!status.data?.desktop;
   const autostart = useAutostart(desktop);
 
-  useEffect(() => {
-    if (settings.data && !form) setForm(editableOf(settings.data));
-  }, [settings.data, form]);
-
   const save = useMutation({
     mutationFn: (patch: Partial<EditableSettings>) => api.updateSettings(patch),
-    onSuccess: (saved) => {
-      setForm(editableOf(saved));
+    onSuccess: () => {
+      setEdits({});
       setError(null);
       void qc.invalidateQueries();
       toast({ tone: 'success', title: 'Ajustes guardados' });
@@ -179,28 +100,26 @@ export function Settings() {
   });
   const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void qc.invalidateQueries() });
   const [confirmClose, setConfirmClose] = useState(false);
+  // Qué pasa después de cerrarlo depende del inicio con Windows (igual que el aviso de la bandeja).
+  const reopenHint =
+    autostart.query.data?.enabled === true
+      ? 'Volverá a arrancar solo la próxima vez que inicies sesión en Windows, o ábrelo antes desde el escritorio o el menú Inicio.'
+      : 'Vuelve a abrirlo desde el escritorio o el menú Inicio.';
   const shutdown = useMutation({
     mutationFn: api.shutdown,
     onSuccess: () => {
       setConfirmClose(false);
-      toast({
-        tone: 'info',
-        title: 'ProductFinderSV se cerró',
-        body: 'Las búsquedas automáticas se detuvieron. Vuelve a abrirlo desde el escritorio o el menú Inicio.',
-      });
+      toast({ tone: 'info', title: 'ProductFinderSV se cerró', body: `Las búsquedas automáticas se detuvieron. ${reopenHint}` });
     },
   });
 
-  if (!form || !settings.data) {
-    return (
-      <PageLoader />
-    );
-  }
+  if (!settings.data) return <PageLoader />;
 
   const { pausedUntil } = settings.data;
   const saved = editableOf(settings.data);
-  const changed = (Object.keys(form) as (keyof EditableSettings)[]).filter((k) => form[k] !== saved[k]);
-  const set = <K extends keyof EditableSettings>(k: K, v: EditableSettings[K]) => setForm({ ...form, [k]: v });
+  const form: EditableSettings = { ...saved, ...edits };
+  const changed = (Object.keys(edits) as (keyof EditableSettings)[]).filter((k) => edits[k] !== saved[k]);
+  const set = <K extends keyof EditableSettings>(k: K, v: EditableSettings[K]) => setEdits((e) => ({ ...e, [k]: v }));
 
   const numberField = (key: NumericKey) => {
     const f = NUMERIC[key];
@@ -226,7 +145,11 @@ export function Settings() {
           <>
             <Button
               icon={<RotateCcw className="size-4" />}
-              onClick={() => setForm({ ...DEFAULTS, schedulerEnabled: form.schedulerEnabled, notifyMode: form.notifyMode })}
+              onClick={() => {
+                // Los límites recomendados; el interruptor del bot y los avisos quedan como estén.
+                const { schedulerEnabled: _on, notifyMode: _notify, ...recommended } = DEFAULTS;
+                setEdits((e) => ({ ...e, ...recommended }));
+              }}
             >
               Valores recomendados
             </Button>
@@ -275,7 +198,7 @@ export function Settings() {
             checked={form.schedulerEnabled}
             onChange={(v) => set('schedulerEnabled', v)}
             label="Búsquedas automáticas"
-            description="Apágalo para que el bot no busque solo. “Probar ahora” sigue funcionando."
+            description="Apágalo para que el bot no busque solo. “Probar ahora” sigue funcionando, salvo durante una pausa por verificación de Facebook."
           />
           <ChoiceList
             name="browserMode"
@@ -288,16 +211,20 @@ export function Settings() {
         </Section>
 
         <Section
-          title="Notificaciones"
+          title="Avisos de Windows"
           description="Avisos de Windows cuando una búsqueda automática termina. Al hacer clic se abren sus resultados. “Probar ahora” no avisa: el resultado ya se ve en el panel."
         >
           <ChoiceList
             name="notifyMode"
             legend="Avisarme de"
-            options={NOTIFY_MODES}
+            options={NOTIFY_CHOICES}
             value={form.notifyMode}
             onChange={(v) => set('notifyMode', v)}
           />
+        </Section>
+
+        <Section title="Telegram" description="Recibe los avisos en el celular y controla el bot con comandos.">
+          <TelegramSettings />
         </Section>
 
         <Section title="Frecuencia y límites" description="Protegen tu cuenta: Facebook puede bloquear patrones demasiado frecuentes.">
@@ -318,6 +245,16 @@ export function Settings() {
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-sm">
             <dt className="label-tech self-center text-muted">Versión</dt>
             <dd className="font-mono">{status.data?.version ?? '—'}</dd>
+            {status.data?.service && (
+              <>
+                <dt className="label-tech self-center text-muted">En segundo plano</dt>
+                <dd>desde {formatDateTime(status.data.service.since)}</dd>
+                <dt className="label-tech self-center text-muted">Reinicios automáticos</dt>
+                <dd title="Veces que ProductFinderSV se reinició solo porque el servicio se cerró o dejó de responder.">
+                  {status.data.service.restarts === 0 ? 'Ninguno' : status.data.service.restarts}
+                </dd>
+              </>
+            )}
           </dl>
           {desktop && (
             <Toggle
@@ -329,7 +266,7 @@ export function Settings() {
                 })
               }
               label="Iniciar con Windows"
-              description="ProductFinderSV arranca en segundo plano al iniciar sesión, con su icono junto al reloj. Si lo apagas, el bot solo busca mientras esté abierto."
+              description="ProductFinderSV arranca en segundo plano al iniciar sesión, con su icono junto al reloj. Si lo apagas, empieza a buscar cuando lo abras (y sigue aunque cierres la ventana)."
             />
           )}
           {status.data?.canShutdown && (
@@ -348,7 +285,7 @@ export function Settings() {
       <ConfirmDialog
         open={confirmClose}
         title="Cerrar ProductFinderSV"
-        message="Se detendrán las búsquedas automáticas hasta que vuelvas a abrir ProductFinderSV desde el escritorio o el menú Inicio."
+        message={`Se detendrán las búsquedas automáticas. ${reopenHint}`}
         confirmLabel="Cerrar"
         loading={shutdown.isPending}
         onCancel={() => setConfirmClose(false)}

@@ -8,14 +8,22 @@ Bot local para Windows que vigila Facebook Marketplace (El Salvador, USD) y mues
 
 1. Descarga **`ProductFinderSV.exe`** de la sección [Releases](../../releases) del repositorio.
 2. Ábrelo con doble clic. Como el ejecutable no está firmado, Windows puede mostrar *"Windows protegió su PC"*: pulsa **Más información → Ejecutar de todas formas**.
-3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, queda en **Configuración → Aplicaciones**, se configura para **iniciar con Windows** y abre el panel en su propia ventana.
-4. En el panel: acepta el aviso de riesgos → **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
+3. ProductFinderSV se instala solo (sin permisos de administrador), crea accesos directos en el **escritorio** y el **menú Inicio**, queda en **Configuración → Aplicaciones** y abre el panel en su propia ventana.
+4. En el panel: acepta el aviso de riesgos y elige si **iniciar con Windows** → **Conectar Facebook** → inicia sesión en la ventana de Edge que se abre → crea tu primera búsqueda.
 
 Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta instalar nada más.
 
-- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano, con su icono junto al reloj de Windows (clic → abre el panel; clic derecho → ver resultados, pausar/reanudar las búsquedas automáticas o cerrar). Para detenerlo: *icono → Cerrar ProductFinderSV* o *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
-- **Inicio con Windows**: activado de fábrica; se cambia en *Ajustes → Aplicación → Iniciar con Windows*.
-- **Avisos**: cuando una búsqueda automática encuentra resultados nuevos o una bajada de precio, Windows muestra un aviso; al hacer clic se abren esos resultados. En *Ajustes → Notificaciones* eliges todos, solo precio ideal o ninguno.
+- **Cerrar la ventana no detiene el bot**: sigue buscando en segundo plano, con su icono junto al reloj de Windows (clic → abre el panel; clic derecho → ver resultados, pausar/reanudar las búsquedas automáticas, iniciar con Windows o cerrar). Para detenerlo: *icono → Cerrar ProductFinderSV* o *Ajustes → Aplicación → Cerrar ProductFinderSV*. Para volver a abrirlo, usa el acceso directo.
+- **Inicio con Windows**: se elige en la bienvenida (viene marcado) y se cambia en *Ajustes → Aplicación* o en el menú del icono. Con él activado, ProductFinderSV arranca en segundo plano cada vez que inicias sesión en Windows, sin abrir la ventana. Solo busca con la sesión de Windows iniciada.
+- **Se recupera solo**: si el servicio se cae o deja de responder, se reinicia automáticamente (en *Ajustes → Aplicación* se ve desde cuándo corre y cuántas veces se reinició). En el Administrador de tareas verás dos procesos *ProductFinderSV*: el servicio y su supervisor.
+- **Avisos**: cuando una búsqueda automática encuentra resultados nuevos o una bajada de precio, Windows muestra un aviso; al hacer clic se abren esos resultados. En *Ajustes → Avisos de Windows* eliges todos, solo precio ideal o ninguno.
+- **Telegram (opcional)**: recibe los avisos en el celular y controla el bot con comandos. En *Ajustes → Telegram*:
+  1. En Telegram abre **@BotFather**, envíale `/newbot`, elige un nombre y un usuario (termina en "bot") y copia el token que te da.
+  2. Pega el token y pulsa *Guardar token*.
+  3. Pulsa *Vincular mi Telegram* y abre el enlace (o, desde el celular, envía al bot el `/start …` que se muestra).
+  4. Listo: cada búsqueda automática con novedades envía un mensaje con la foto del mejor resultado y hasta 5 enlaces a Facebook (eliges todo, solo precio ideal o nada), y te avisa si Facebook pide una verificación o se cierra la sesión. Desde ese chat puedes enviar `/estado`, `/pausar`, `/reanudar` y `/ayuda`; el bot ignora a cualquier otra persona.
+
+  Cada PC necesita **su propio bot** (si dos instalaciones usan el mismo token, Ajustes lo avisa). Los avisos pasan por los servidores de Telegram; el token se guarda solo en tu PC.
 - **Compartir búsquedas**: en *Búsquedas → Exportar* se descarga un `.json` con tus criterios (sin resultados ni datos de tu cuenta); tu amigo lo carga con *Importar*.
 - **Actualizar**: descarga el nuevo `.exe` y ábrelo; reemplaza la versión anterior y conserva tus búsquedas y resultados.
 - **Desinstalar**: *Configuración de Windows → Aplicaciones → ProductFinderSV → Desinstalar*. Pregunta si también quieres borrar tus datos (búsquedas, resultados y la sesión de Facebook de la app, en `%LOCALAPPDATA%\productFindersv`). Si la entrada no aparece (versiones anteriores), abre una vez el `.exe` nuevo para que se registre.
@@ -24,8 +32,11 @@ Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta
 
 El `.exe` (~92 MB) **no se sube al repositorio**: lo construye GitHub Actions y lo adjunta al Release.
 
-1. Sube la versión en `package.json` (p. ej. `0.2.0`) y haz commit.
-2. Crea y sube la etiqueta:
+1. Sube la versión (p. ej. `0.2.0`) en todos los `package.json` y en `package-lock.json`, y haz commit:
+   ```bash
+   npm version 0.2.0 --no-git-tag-version --workspaces --include-workspace-root
+   ```
+2. Con ese commit ya en `main`, crea y sube la etiqueta desde `main`:
    ```bash
    git tag v0.2.0
    ```
@@ -47,9 +58,10 @@ Modos del ejecutable (los usa Windows; no hace falta escribirlos a mano):
 | Argumento | Uso |
 |---|---|
 | *(ninguno)* | Instala/actualiza, arranca el servicio y abre el panel |
-| `--background` | Igual pero sin abrir el panel (inicio con Windows) |
+| `--background` | Igual pero sin abrir el panel (inicio con Windows, si está activado) |
 | `--open productfindersv://resultados?watcher=3` | Abre una pantalla concreta (clic en un aviso) |
-| `--server` | El servicio en sí (lo lanza el propio ejecutable) |
+| `--server` | Supervisor: lanza el servicio y lo reinicia si se cae o no responde |
+| `--worker` | El servicio en sí: API, panel, bot e icono de la bandeja (lo lanza el supervisor) |
 | `--uninstall` | Desinstalador (Configuración → Aplicaciones) |
 
 Cada push a `main` y cada pull request pasan por [ci.yml](.github/workflows/ci.yml): typecheck, tests y build.
@@ -105,7 +117,7 @@ Pantallas del panel:
 - **Resultados** — tarjetas con foto, precio, puntuación e insignias (nuevo, precio ideal, bajó de precio, descripción sin revisar); filtros por búsqueda, estado, precio y orden; detalle con descripción e historial de precio.
 - **Búsquedas** — crear, editar, activar/pausar, "Probar ahora", eliminar, exportar e importar.
 - **Actividad** — registro de cada corrida.
-- **Ajustes** — sesión de Facebook, interruptor del bot, modo del navegador, notificaciones, límites de frecuencia, manejo de errores e inicio con Windows.
+- **Ajustes** — sesión de Facebook, interruptor del bot, modo del navegador, avisos de Windows, Telegram, límites de frecuencia, manejo de errores e inicio con Windows.
 
 El panel se actualiza en vivo (Server-Sent Events): avisa cuando una búsqueda termina con resultados nuevos o si Facebook pide verificación.
 
@@ -136,6 +148,9 @@ Abre http://localhost:5173 (Vite con recarga instantánea; reenvía `/api` al pu
 | GET | `/api/runs` | Registro de corridas |
 | GET / PATCH | `/api/settings` | Ajustes del bot (ver tabla abajo) |
 | POST | `/api/scheduler/resume` | Quitar la pausa automática tras una verificación de Facebook |
+| GET / PATCH / DELETE | `/api/telegram` | Estado del bot de Telegram (nunca el token), modo de avisos `{ "notifyMode": "ideal" }`, desvincular |
+| PUT | `/api/telegram/token` | Guardar el token `{ "token": "…" }` (se valida con Telegram) |
+| POST | `/api/telegram/link` · `/api/telegram/test` | Enlace de vinculación de un solo uso · mensaje de prueba |
 | GET / PUT | `/api/system/autostart` | Inicio con Windows `{ "enabled": true }` (solo en el ejecutable) |
 | POST | `/api/system/shutdown` | Cerrar el servicio |
 | GET | `/api/events` | Eventos en vivo (SSE): `run:started`, `run:finished`, `session:changed` |

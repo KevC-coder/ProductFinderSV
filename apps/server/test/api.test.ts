@@ -278,6 +278,8 @@ test('inicio con Windows solo en la app de escritorio', async () => {
   const res = await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: true } });
   assert.deepEqual(res.json(), { enabled: true });
   assert.equal(enabled, true);
+  // La elección queda guardada para restaurarla si reinstala conservando los datos.
+  assert.equal(store.settings.get('autostartWanted'), true);
   assert.equal((await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: 'si' } })).statusCode, 400);
 });
 
@@ -291,4 +293,50 @@ test('ajustes de avisos y aviso de riesgos', async () => {
   assert.equal((await patch({ notifyMode: 'ideal', riskNoticeAccepted: true })).json().notifyMode, 'ideal');
   assert.equal((await app.inject({ method: 'GET', url: '/api/settings' })).json().riskNoticeAccepted, true);
   assert.equal((await patch({ notifyMode: 'siempre' })).json().error, 'Notificaciones: valor no permitido.');
+});
+
+test('"Ejecutar ya" durante la pausa de seguridad responde 409 con la explicación', async () => {
+  const { app, store } = setup();
+  const w = (await app.inject({ method: 'POST', url: '/api/watchers', payload: { name: 'a', query: 'b' } })).json();
+  store.settings.set({ pausedUntil: '2999-01-01T00:00:00.000Z' });
+  const res = await app.inject({ method: 'POST', url: `/api/watchers/${w.id}/run?wait=true` });
+  assert.equal(res.statusCode, 409);
+  assert.match(res.json().error, /pausa por seguridad/);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/watchers/999/run' })).statusCode, 404);
+});
+
+test('el estado informa del servicio en segundo plano solo en la app de escritorio', async () => {
+  const { app } = setup();
+  assert.equal((await app.inject({ method: 'GET', url: '/api/status' })).json().service, null);
+
+  const store = createStore(':memory:');
+  const bot = new Bot(store, fakeScraper({ listings: [] }).scraper);
+  const service = { since: '2026-10-18T12:00:00.000Z', restarts: 2 };
+  const desktop = buildApp({
+    store,
+    bot,
+    desktop: { autostart: { isEnabled: async () => false, setEnabled: async () => {} }, service },
+  });
+  assert.deepEqual((await desktop.inject({ method: 'GET', url: '/api/status' })).json().service, service);
+});
+
+test('rechaza peticiones de páginas web ajenas (DNS rebinding y CSRF)', async () => {
+  const { app } = setup();
+  const req = (method: 'GET' | 'POST', headers: Record<string, string>) =>
+    app.inject({ method, url: method === 'GET' ? '/api/status' : '/api/scheduler/resume', headers });
+
+  // Panel (Edge --app), bandeja, lanzador y Vite en desarrollo.
+  assert.equal((await req('GET', { host: '127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: 'localhost:5173', origin: 'http://localhost:5173' })).statusCode, 200);
+
+  // Un dominio ajeno que resuelve a 127.0.0.1, o una web ajena enviando un formulario.
+  const rebind = await req('GET', { host: 'rebind.atacante.example:8787' });
+  assert.equal(rebind.statusCode, 403);
+  assert.equal(rebind.json().error, 'Acceso no permitido');
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'https://atacante.example' })).statusCode, 403);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'null' })).statusCode, 403);
+  // Las lecturas desde otra web siguen bloqueadas por el navegador (sin CORS): GET con Origin ajeno se permite.
+  assert.equal((await req('GET', { host: '127.0.0.1:8787', origin: 'https://atacante.example' })).statusCode, 200);
 });
