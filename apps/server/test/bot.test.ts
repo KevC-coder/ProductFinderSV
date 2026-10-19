@@ -213,3 +213,20 @@ test('"probar ahora" no se permite durante la pausa de seguridad por verificaci�
   assert.ok('started' in run);
   await run.started;
 });
+
+test('una corrida manual en cola no se ejecuta si la pausa de seguridad empieza mientras espera', async () => {
+  // La primera búsqueda cae en una verificación de Facebook; la segunda esperaba en la cola.
+  const { store, bot, addWatcher } = setup({ scraper: fakeScraper({ listings: [], sessionState: 'checkpoint' }).scraper });
+  const a = addWatcher({ name: 'A' });
+  const b = addWatcher({ name: 'B' });
+  const first = bot.runNow(a.id);
+  const second = bot.runNow(b.id);
+  assert.ok('started' in first && 'started' in second);
+  assert.equal((await first.started).status, 'checkpoint');
+  await assert.rejects(second.started, (err: Error & { statusCode?: number }) => {
+    assert.equal(err.statusCode, 409);
+    assert.match(err.message, /pausa por seguridad/);
+    return true;
+  });
+  assert.equal(store.runs.list().length, 1, 'la segunda no llegó a entrar a Facebook');
+});

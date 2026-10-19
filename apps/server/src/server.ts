@@ -3,7 +3,7 @@ import path from 'node:path';
 import { buildApp, type ServiceInfo } from './api/app.js';
 import { paths } from './config.js';
 import { createStore } from './db/store.js';
-import { createAutostart } from './desktop/autostart.js';
+import { createAutostart, restoreAutostart } from './desktop/autostart.js';
 import { appLink } from './desktop/links.js';
 import { startTray } from './desktop/tray.js';
 import { notifyRun } from './notifier/notification.js';
@@ -39,11 +39,6 @@ export interface RunningServer {
 export async function startServer(opts: StartOptions = {}): Promise<RunningServer> {
   const port = opts.port ?? 8787;
   const store = createStore(path.join(paths.data, 'productfindersv.db'));
-  store.runs.failStale();
-  // Instalaciones anteriores a la pantalla de bienvenida: si ya hay búsquedas, no mostrarla.
-  if (!store.settings.get('riskNoticeAccepted') && store.watchers.list().length) {
-    store.settings.set({ riskNoticeAccepted: true });
-  }
 
   const windows = process.platform === 'win32';
   const desktopExe = windows ? opts.desktopExe : undefined;
@@ -71,15 +66,24 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
       store.db.close();
     })());
 
+  const autostart = desktopExe ? createAutostart(desktopExe) : null;
   const app = buildApp({
     store,
     bot,
     logger: opts.logFile ? { level: 'info', file: opts.logFile } : true,
     webDir,
-    desktop: desktopExe ? { autostart: createAutostart(desktopExe), service: opts.service } : undefined,
+    desktop: autostart ? { autostart, service: opts.service } : undefined,
     onShutdown: async () => {
       // Red de seguridad: si algo bloquea el cierre ordenado, salir igual.
       setTimeout(() => process.exit(0), 5000).unref();
+      // Avisa a cualquier otro supervisor que esté esperando para reiniciar: el usuario cerró la app.
+      if (desktopExe) {
+        try {
+          fs.writeFileSync(paths.serviceStopped, new Date().toISOString());
+        } catch (err) {
+          app.log.warn({ err }, 'no se pudo marcar el cierre del servicio');
+        }
+      }
       await stop().catch((err) => app.log.error(err, 'error al cerrar'));
       process.exit(0);
     },
@@ -97,10 +101,28 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   });
 
   // Solo 127.0.0.1: el panel no debe ser accesible desde otros equipos de la red.
-  await app.listen({ host: '127.0.0.1', port });
+  try {
+    await app.listen({ host: '127.0.0.1', port });
+  } catch (err) {
+    store.db.close();
+    throw err;
+  }
+  // El puerto hace de candado: solo el servicio que lo consiguió puede dar por interrumpidas las
+  // corridas a medias. Un arranque sobrante (puerto ocupado) no debe tocar la corrida en curso
+  // del servicio activo.
+  store.runs.failStale();
+  // Instalaciones anteriores a la pantalla de bienvenida: si ya hay búsquedas, no mostrarla.
+  if (!store.settings.get('riskNoticeAccepted') && store.watchers.list().length) {
+    store.settings.set({ riskNoticeAccepted: true });
+  }
   bot.start();
   if (desktopExe) {
     stopTray = startTray({ exePath: desktopExe, port }, (err) => app.log.warn({ err }, 'icono de la bandeja'));
+  }
+  if (autostart) {
+    restoreAutostart(store.settings.get('autostartWanted'), autostart)
+      .then((restored) => restored && app.log.info('inicio con Windows restaurado'))
+      .catch((err) => app.log.warn({ err }, 'no se pudo restaurar el inicio con Windows'));
   }
   app.log.info({ version: APP_VERSION, data: paths.data }, 'ProductFinderSV iniciado');
   return { url: `http://127.0.0.1:${port}`, stop };

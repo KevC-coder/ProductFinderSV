@@ -106,7 +106,7 @@ export function Welcome() {
               checked={startWithWindows}
               onChange={setStartWithWindows}
               label="Iniciar ProductFinderSV con Windows"
-              description="Arranca en segundo plano al iniciar sesión y sigue buscando aunque cierres la ventana. Puedes cambiarlo después en Ajustes o en el icono junto al reloj."
+              description="Arranca en segundo plano cada vez que inicias sesión en Windows, con su icono junto al reloj. Esté activado o no, ProductFinderSV sigue buscando aunque cierres la ventana; para detenerlo usa “Cerrar ProductFinderSV”. Puedes cambiarlo después en Ajustes o en ese icono."
             />
           </div>
         )}

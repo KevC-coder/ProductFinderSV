@@ -29,6 +29,21 @@ export interface BotStatus {
   nextRun: { watcherId: number; name: string; at: string } | null;
 }
 
+/** Mensaje para el usuario cuando "Probar ahora" no se permite por la pausa de seguridad. */
+export const PAUSED_RUN_MESSAGE =
+  'El bot está en pausa por seguridad porque Facebook pidió una verificación. Resuélvela y pulsa “Ya resolví la verificación, reanudar” en Inicio o en Ajustes antes de probar.';
+
+/**
+ * Una corrida manual que esperaba en la cola cuando empezó la pausa de seguridad (otra corrida
+ * cayó en una verificación). statusCode 409: la API lo devuelve tal cual al panel.
+ */
+export class RunRefusedError extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super(PAUSED_RUN_MESSAGE);
+  }
+}
+
 /** Resumen de una corrida, indicando si la pidió el usuario ("Probar ahora") o fue automática. */
 export interface FinishedRun extends RunSummary {
   manual: boolean;
@@ -210,6 +225,8 @@ export class Bot extends EventEmitter<BotEvents> {
 
   private enqueueRun(w: Watcher, manual: boolean): Promise<FinishedRun> {
     return this.queue.run(watcherJob(w.id), async () => {
+      // La pausa pudo empezar mientras esperaba en la cola: no volver a entrar a Facebook.
+      if (this.isPaused()) throw new RunRefusedError();
       // Releer por si el usuario la editó mientras esperaba en la cola.
       const watcher = this.store.watchers.get(w.id) ?? w;
       this.emit('run:started', { watcherId: watcher.id });

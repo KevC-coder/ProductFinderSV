@@ -98,7 +98,11 @@ $autostart.add_Click({
   try {
     $body = @{ enabled = (-not $autostart.Checked) } | ConvertTo-Json -Compress
     $autostart.Checked = [bool]((Invoke-Api 'PUT' '/system/autostart' $body) | ConvertFrom-Json).enabled
-  } catch {}
+  } catch {
+    [void][System.Windows.Forms.MessageBox]::Show(
+      'No se pudo cambiar el inicio con Windows. Puede que una directiva del equipo o el antivirus lo impidan.',
+      'ProductFinderSV', 'OK', 'Warning')
+  }
 })
 $quit.add_Click({
   $answer = [System.Windows.Forms.MessageBox]::Show(
@@ -110,19 +114,24 @@ $quit.add_Click({
   [System.Windows.Forms.Application]::Exit()
 })
 
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 15000
-$timer.add_Tick({
+# Si el servicio termina (cierre, caída o reinicio del supervisor) el icono se quita solo en
+# unos 2 s; así no quedan iconos repetidos cuando el servicio se reinicia.
+$watch = New-Object System.Windows.Forms.Timer
+$watch.Interval = 2000
+$watch.add_Tick({
   if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) {
     $icon.Visible = $false
     [System.Windows.Forms.Application]::Exit()
-    return
   }
-  Update-Status
 })
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 15000
+$timer.add_Tick({ Update-Status })
 
 $icon.Visible = $true
 Update-Status
+$watch.Start()
 $timer.Start()
 [System.Windows.Forms.Application]::Run()
 $icon.Visible = $false
@@ -130,16 +139,24 @@ $icon.Dispose()
 `;
 }
 
-/** Muestra el icono mientras el servicio esté activo. Devuelve la función para quitarlo. */
+/**
+ * Muestra el icono mientras el servicio esté activo. Devuelve la función que se llama al
+ * cerrar el servicio.
+ *
+ * El proceso del icono va desacoplado del servicio y no se mata desde aquí: si Windows lo
+ * termina de golpe (al morir el servicio o con kill), el icono queda "fantasma" en la bandeja
+ * hasta que el usuario pasa el ratón. En cambio, el propio script detecta que el servicio
+ * terminó y quita el icono de forma ordenada.
+ */
 export function startTray(opts: Omit<TrayOptions, 'parentPid'>, onError: (err: Error) => void): () => void {
   let stopping = false;
-  const child = spawnPowerShell(trayScript({ ...opts, parentPid: process.pid }));
+  const child = spawnPowerShell(trayScript({ ...opts, parentPid: process.pid }), { detached: true });
+  child.unref();
   child.on('error', onError);
   child.on('exit', (code) => {
     if (code && !stopping) onError(new Error(`el icono de la bandeja terminó con código ${code}`));
   });
   return () => {
     stopping = true;
-    if (child.exitCode === null) child.kill();
   };
 }

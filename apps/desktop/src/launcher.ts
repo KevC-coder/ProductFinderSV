@@ -30,6 +30,7 @@ import {
   cleanupScript,
   messageBoxScript,
   registerScript,
+  stopProcessesScript,
   unregisterScript,
   type MessageBoxButtons,
   type MessageBoxIcon,
@@ -157,6 +158,13 @@ async function runSupervisor(): Promise<void> {
       };
     },
     probe: async () => (await probe()) !== null,
+    stoppedByUserSince: (t) => {
+      try {
+        return Date.parse(fs.readFileSync(paths.serviceStopped, 'utf8')) >= t;
+      } catch {
+        return false;
+      }
+    },
     log: (msg) => log(`[supervisor] ${msg}`),
   });
   const code = await supervisor.run();
@@ -173,9 +181,9 @@ async function runWorker(): Promise<void> {
   });
   process.on('unhandledRejection', (err) => log(`unhandledRejection: ${String(err)}`));
   process.env.PFSV_VERSION = BUILD_ID;
-  const runtimeRequire = createRequire(path.join(RUNTIME_DIR, 'server.cjs'));
-  const { startServer } = runtimeRequire('./server.cjs') as typeof import('../../server/src/server.js');
   try {
+    const runtimeRequire = createRequire(path.join(RUNTIME_DIR, 'server.cjs'));
+    const { startServer } = runtimeRequire('./server.cjs') as typeof import('../../server/src/server.js');
     await startServer({
       port: PORT,
       webDir: path.join(RUNTIME_DIR, 'web'),
@@ -192,14 +200,27 @@ async function runWorker(): Promise<void> {
       log('el puerto ya está en uso; otra instancia está corriendo');
       process.exit(EXIT_CODES.alreadyRunning);
     }
+    // Runtime dañado, base de datos ilegible, puerto bloqueado…: el supervisor lo reintenta unas
+    // pocas veces y luego se rinde.
     log(`el servicio no pudo arrancar: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
-    process.exit(1);
+    process.exit(EXIT_CODES.startupFailed);
   }
 }
 
 // ---- Modo lanzador ------------------------------------------------------------------
 
 const samePath = (a: string, b: string) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+
+/**
+ * Termina los procesos que queden de ese .exe (un supervisor esperando para reiniciar, un
+ * servicio colgado) salvo este mismo proceso. Sin esto, reemplazar o borrar el .exe falla y el
+ * supervisor podría volver a lanzar el servicio.
+ */
+function stopProcessesOf(exePath: string): void {
+  spawnSync('powershell.exe', powershellArgs(stopProcessesScript({ exePath, exceptPid: process.pid })), {
+    windowsHide: true,
+  });
+}
 
 /** Accesos directos, enlace productfindersv:// y entrada en Configuración → Aplicaciones. */
 function registerApp(target: string): void {
@@ -238,6 +259,7 @@ async function installSelf(): Promise<string> {
     }
     const copy = installedBuild !== BUILD_ID || !fs.existsSync(INSTALLED_EXE);
     if (copy) {
+      if (fs.existsSync(INSTALLED_EXE)) stopProcessesOf(INSTALLED_EXE);
       fs.mkdirSync(INSTALL_DIR, { recursive: true });
       await copyWithRetry(current, INSTALLED_EXE);
       fs.writeFileSync(path.join(INSTALL_DIR, 'version.txt'), BUILD_ID);
@@ -283,10 +305,20 @@ async function launch(opts: { window: boolean; route?: string }): Promise<void> 
   if (!running) {
     const exe = await installSelf();
     log(`iniciando el servicio con ${exe}`);
-    spawn(exe, ['--server'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    // Abrir la app anula un "Cerrar ProductFinderSV" anterior.
+    fs.rmSync(paths.serviceStopped, { force: true });
+    const supervisor = spawn(exe, ['--server'], { detached: true, stdio: 'ignore', windowsHide: true });
+    supervisor.unref();
     // La primera vez tarda más: extrae la app (~15 MB).
     const ok = await waitFor(async () => (await probe()) !== null, 60_000);
     if (!ok) {
+      // No dejar un supervisor reintentando en segundo plano sin que el usuario lo sepa
+      // (al terminar el supervisor termina también su servicio).
+      try {
+        supervisor.kill();
+      } catch {
+        // ya había terminado
+      }
       const message =
         `No se pudo iniciar ProductFinderSV. Revisa que nada más use el puerto ${PORT}.\n\nRegistro: ` +
         path.join(LOG_DIR, 'launcher.log');
@@ -317,15 +349,12 @@ async function uninstall(): Promise<void> {
     ) === 'Yes';
 
   log(`desinstalando (borrar datos: ${removeData})`);
-  if (await probe()) await stopRunningService();
+  // Cierre ordenado si el servicio responde; si no (caído, colgado o con el supervisor
+  // esperando para reiniciar), se terminan sus procesos para que no vuelva a arrancar.
+  await stopRunningService();
+  for (const exe of new Set([INSTALLED_EXE, process.execPath])) stopProcessesOf(exe);
 
   spawnSync('powershell.exe', powershellArgs(unregisterScript()), { windowsHide: true });
-  // El .exe en uso (este desinstalador y el servicio que se está cerrando) no se puede borrar:
-  // un PowerShell aparte espera a que terminen todos y luego borra.
-  // Sin borrar datos se quita igual la copia extraída de la app (runtime), que no es del usuario.
-  const targets = [INSTALL_DIR, removeData ? paths.data : RUNTIME_ROOT];
-  spawnPowerShell(cleanupScript({ exePath: process.execPath, targets }), { detached: true }).unref();
-
   messageBox(
     removeData
       ? 'ProductFinderSV se desinstaló junto con tus datos.'
@@ -333,6 +362,12 @@ async function uninstall(): Promise<void> {
     'OK',
     'Information',
   );
+
+  // Al final, para que el plazo de espera no corra mientras el último aviso sigue abierto:
+  // este desinstalador termina enseguida y un PowerShell aparte borra el .exe cuando ya no esté
+  // en uso. Sin borrar datos se quita igual la copia extraída de la app (runtime).
+  const targets = [INSTALL_DIR, removeData ? paths.data : RUNTIME_ROOT];
+  spawnPowerShell(cleanupScript({ exePath: process.execPath, targets }), { detached: true }).unref();
 }
 
 // ---- Entrada --------------------------------------------------------------------------

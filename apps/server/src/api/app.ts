@@ -6,7 +6,7 @@ import type { Settings } from '../db/settings.js';
 import type { Store } from '../db/store.js';
 import type { Autostart } from '../desktop/autostart.js';
 import type { MatchStatus, Watcher, WatcherInput } from '../domain/types.js';
-import type { Bot } from '../scheduler/bot.js';
+import { PAUSED_RUN_MESSAGE, RunRefusedError, type Bot } from '../scheduler/bot.js';
 import { APP_VERSION, VERSION_HEADER } from '../version.js';
 import { registerErrorHandler } from './errors.js';
 import { registerEvents } from './events.js';
@@ -56,8 +56,7 @@ export interface ServiceInfo {
 
 const RUN_REFUSED = {
   queued: 'La búsqueda ya está en cola',
-  paused:
-    'El bot está en pausa por seguridad porque Facebook pidió una verificación. Resuélvela y pulsa “Ya lo resolví, reanudar” antes de probar.',
+  paused: PAUSED_RUN_MESSAGE,
 } as const;
 
 /** Solo los campos editables: lo que se comparte al exportar una búsqueda. */
@@ -125,6 +124,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
       { schema: { body: autostartBody } },
       async (req) => {
         await desktop.autostart.setEnabled(req.body.enabled);
+        store.settings.set({ autostartWanted: req.body.enabled });
         return { enabled: await desktop.autostart.isEnabled() };
       },
     );
@@ -219,7 +219,9 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
         return reply.code(409).send({ error: RUN_REFUSED[run.refused] });
       }
       if (req.query.wait) return run.started;
-      run.started.catch((err) => app.log.error(err, 'corrida falló'));
+      run.started.catch((err) => {
+        if (!(err instanceof RunRefusedError)) app.log.error(err, 'corrida falló');
+      });
       return reply.code(202).send({ queued: true });
     },
   );

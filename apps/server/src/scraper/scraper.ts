@@ -18,6 +18,22 @@ import { hasSessionCookie, interactiveLogin } from './session.js';
  */
 export const RUN_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * Ejecuta `fn` con el navegador abierto y lo cierra siempre al terminar, también si vence el
+ * tope. Solo devuelve el control cuando el cierre terminó de verdad: el siguiente trabajo de
+ * la cola (otra corrida o el login) necesita el perfil de Edge libre.
+ */
+export async function runWithBrowser<T>(ctx: { close(): Promise<void> }, fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let closing: Promise<void> | undefined;
+  const close = () => (closing ??= ctx.close().catch(() => {}));
+  try {
+    // Al vencer, cerrar el navegador hace fallar lo que Playwright tuviera pendiente.
+    return await withTimeout(fn(), timeoutMs, () => void close());
+  } finally {
+    await close();
+  }
+}
+
 export interface ScrapeSession {
   search(params: SearchParams, opts?: SearchOptions): Promise<SearchResult>;
   detail(id: string): Promise<Listing | null>;
@@ -41,21 +57,21 @@ export function createPlaywrightScraper(opts: { mode: () => BrowserMode }): Scra
   return {
     async withSession(fn) {
       const ctx = await openBrowser({ mode: opts.mode() });
-      try {
-        if (!(await hasSessionCookie(ctx))) throw new SessionError('logged_out');
-        const page = await firstPage(ctx);
-        const work = fn({
-          search: (params, searchOpts) => searchMarketplace(page, params, searchOpts),
-          async detail(id) {
-            await pause(3000, 7000);
-            return fetchListingDetail(page, id);
-          },
-        });
-        // Al vencer, cerrar el navegador hace fallar lo que Playwright tuviera pendiente.
-        return await withTimeout(work, RUN_TIMEOUT_MS, () => void ctx.close().catch(() => {}));
-      } finally {
-        await ctx.close().catch(() => {});
-      }
+      return runWithBrowser(
+        ctx,
+        async () => {
+          if (!(await hasSessionCookie(ctx))) throw new SessionError('logged_out');
+          const page = await firstPage(ctx);
+          return fn({
+            search: (params, searchOpts) => searchMarketplace(page, params, searchOpts),
+            async detail(id) {
+              await pause(3000, 7000);
+              return fetchListingDetail(page, id);
+            },
+          });
+        },
+        RUN_TIMEOUT_MS,
+      );
     },
     login: () => interactiveLogin(),
   };

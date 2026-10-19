@@ -22,3 +22,28 @@ test('withTimeout: al vencer rechaza, avisa y no deja rechazos sin manejar', asy
 test('withTimeout: propaga el error original', async () => {
   await assert.rejects(withTimeout(Promise.reject(new Error('boom')), 1000), /boom/);
 });
+
+test('runWithBrowser: al vencer el tope cierra el navegador y espera a que termine de cerrarse', async () => {
+  const { runWithBrowser } = await import('../src/scraper/scraper.js');
+  const events: string[] = [];
+  const ctx = {
+    close: async () => {
+      events.push('close:start');
+      await new Promise((r) => setTimeout(r, 30));
+      events.push('close:end');
+    },
+  };
+  await assert.rejects(runWithBrowser(ctx, () => new Promise(() => {}), 10), TimeoutError);
+  events.push('runWithBrowser:done');
+  // Un solo cierre, y la cola solo sigue cuando el perfil de Edge quedó libre.
+  assert.deepEqual(events, ['close:start', 'close:end', 'runWithBrowser:done']);
+});
+
+test('runWithBrowser: cierra también cuando termina bien o con error', async () => {
+  const { runWithBrowser } = await import('../src/scraper/scraper.js');
+  let closes = 0;
+  const ctx = { close: async () => void closes++ };
+  assert.equal(await runWithBrowser(ctx, async () => 5, 1000), 5);
+  await assert.rejects(runWithBrowser(ctx, async () => Promise.reject(new Error('sin sesión')), 1000), /sin sesión/);
+  assert.equal(closes, 2);
+});

@@ -14,6 +14,12 @@ export const paths = {
   browserProfile: path.join(dataDir, 'browser-profile'),
   logs: path.join(dataDir, 'logs'),
   debug: path.join(dataDir, 'debug'),
+  /**
+   * Lo escribe el servicio cuando el usuario lo cierra ("Cerrar ProductFinderSV"): otro
+   * supervisor que estuviera esperando para reiniciar sabe así que no debe hacerlo. Lo borra
+   * el lanzador al volver a arrancar el servicio.
+   */
+  serviceStopped: path.join(dataDir, 'servicio-cerrado.txt'),
 };
 
 export const DEFAULT_PORT = 8787;

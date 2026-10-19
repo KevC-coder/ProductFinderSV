@@ -33,25 +33,31 @@ function fakeTime() {
   };
 }
 
+/** Workers falsos. `responding()` imita la sonda real: responde si hay algún worker vivo. */
 function fakeWorkers() {
-  const workers: { restarts: number; killed: boolean; exit: (code: number | null) => void }[] = [];
+  const workers: { restarts: number; killed: boolean; alive: boolean; exit: (code: number | null) => void }[] = [];
   const spawnWorker = ({ restarts }: { restarts: number }): WorkerHandle => {
     let cb: (code: number | null) => void = () => {};
     const w = {
       restarts,
       killed: false,
-      exit: (code: number | null) => cb(code),
+      alive: true,
+      exit: (code: number | null) => {
+        w.alive = false;
+        cb(code);
+      },
     };
     workers.push(w);
     return {
       kill: () => {
         w.killed = true;
-        cb(null);
+        w.exit(null);
       },
       onExit: (fn) => void (cb = fn),
     };
   };
-  return { workers, spawnWorker };
+  const responding = async () => workers.some((w) => w.alive);
+  return { workers, spawnWorker, responding };
 }
 
 test('espera creciente entre reinicios', () => {
@@ -60,9 +66,9 @@ test('espera creciente entre reinicios', () => {
 
 test('reinicia el servicio si se cae y termina cuando el usuario lo cierra', async () => {
   const time = fakeTime();
-  const { workers, spawnWorker } = fakeWorkers();
+  const { workers, spawnWorker, responding } = fakeWorkers();
   const logs: string[] = [];
-  const sup = new Supervisor({ spawnWorker, probe: async () => true, log: (m) => logs.push(m), ...time });
+  const sup = new Supervisor({ spawnWorker, probe: responding, log: (m) => logs.push(m), ...time });
   let finished: number | null = null;
   void sup.run().then((code) => (finished = code));
 
@@ -89,8 +95,8 @@ test('reinicia el servicio si se cae y termina cuando el usuario lo cierra', asy
 
 test('no reinicia si ya había otro servicio en marcha', async () => {
   const time = fakeTime();
-  const { workers, spawnWorker } = fakeWorkers();
-  const sup = new Supervisor({ spawnWorker, probe: async () => true, log: () => {}, ...time });
+  const { workers, spawnWorker, responding } = fakeWorkers();
+  const sup = new Supervisor({ spawnWorker, probe: responding, log: () => {}, ...time });
   const done = sup.run();
   workers[0]!.exit(EXIT_CODES.alreadyRunning);
   assert.equal(await done, EXIT_CODES.alreadyRunning);
@@ -144,8 +150,8 @@ test('un fallo aislado de la comprobación no reinicia', async () => {
 
 test('tras funcionar un buen rato, la siguiente caída vuelve a la espera corta', async () => {
   const time = fakeTime();
-  const { workers, spawnWorker } = fakeWorkers();
-  const sup = new Supervisor({ spawnWorker, probe: async () => true, log: () => {}, stableAfterMs: 600_000, ...time });
+  const { workers, spawnWorker, responding } = fakeWorkers();
+  const sup = new Supervisor({ spawnWorker, probe: responding, log: () => {}, stableAfterMs: 600_000, ...time });
   void sup.run();
   workers[0]!.exit(1);
   await time.advance(2_000);
@@ -156,4 +162,64 @@ test('tras funcionar un buen rato, la siguiente caída vuelve a la espera corta'
   workers[2]!.exit(1);
   await time.advance(2_000);
   assert.equal(workers.length, 4);
+});
+
+test('si el servicio no consigue arrancar varias veces seguidas, el supervisor se rinde', async () => {
+  const time = fakeTime();
+  const { workers, spawnWorker, responding } = fakeWorkers();
+  const logs: string[] = [];
+  const sup = new Supervisor({ spawnWorker, probe: responding, log: (m) => logs.push(m), maxStartupFailures: 3, ...time });
+  let finished: number | null = null;
+  void sup.run().then((code) => (finished = code));
+
+  workers[0]!.exit(EXIT_CODES.startupFailed);
+  await time.advance(2_000);
+  workers[1]!.exit(1); // una caída normal en medio reinicia la cuenta de arranques fallidos
+  await time.advance(5_000);
+  workers[2]!.exit(EXIT_CODES.startupFailed);
+  await time.advance(15_000);
+  workers[3]!.exit(EXIT_CODES.startupFailed);
+  await time.advance(60_000);
+  workers[4]!.exit(EXIT_CODES.startupFailed);
+  await time.advance(600_000);
+  assert.equal(workers.length, 5);
+  assert.equal(finished, EXIT_CODES.startupFailed);
+  assert.match(logs.join('\n'), /no pudo arrancar 3 veces seguidas/);
+});
+
+test('no reinicia si el usuario cerró ProductFinderSV mientras esperaba', async () => {
+  const time = fakeTime();
+  const { workers, spawnWorker, responding } = fakeWorkers();
+  let stoppedAt: number | null = null;
+  const sup = new Supervisor({
+    spawnWorker,
+    probe: responding,
+    log: () => {},
+    stoppedByUserSince: (t) => stoppedAt != null && stoppedAt >= t,
+    ...time,
+  });
+  let finished: number | null = null;
+  void sup.run().then((code) => (finished = code));
+
+  workers[0]!.exit(1);
+  await time.advance(1_000);
+  stoppedAt = time.now(); // otro servicio se cerró por pedido del usuario durante la espera
+  await time.advance(1_000);
+  assert.equal(workers.length, 1);
+  assert.equal(finished, EXIT_CODES.shutdown);
+});
+
+test('no lanza un segundo servicio si otro ya responde cuando toca reiniciar', async () => {
+  const time = fakeTime();
+  const { workers, spawnWorker } = fakeWorkers();
+  let otherService = false;
+  const sup = new Supervisor({ spawnWorker, probe: async () => otherService, log: () => {}, ...time });
+  let finished: number | null = null;
+  void sup.run().then((code) => (finished = code));
+
+  workers[0]!.exit(1);
+  otherService = true; // el usuario abrió la app y arrancó otro servicio
+  await time.advance(2_000);
+  assert.equal(workers.length, 1);
+  assert.equal(finished, EXIT_CODES.alreadyRunning);
 });

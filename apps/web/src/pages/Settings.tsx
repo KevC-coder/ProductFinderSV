@@ -179,15 +179,16 @@ export function Settings() {
   });
   const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void qc.invalidateQueries() });
   const [confirmClose, setConfirmClose] = useState(false);
+  // Qué pasa después de cerrarlo depende del inicio con Windows (igual que el aviso de la bandeja).
+  const reopenHint =
+    autostart.query.data?.enabled === true
+      ? 'Volverá a arrancar solo la próxima vez que inicies sesión en Windows, o ábrelo antes desde el escritorio o el menú Inicio.'
+      : 'Vuelve a abrirlo desde el escritorio o el menú Inicio.';
   const shutdown = useMutation({
     mutationFn: api.shutdown,
     onSuccess: () => {
       setConfirmClose(false);
-      toast({
-        tone: 'info',
-        title: 'ProductFinderSV se cerró',
-        body: 'Las búsquedas automáticas se detuvieron. Vuelve a abrirlo desde el escritorio o el menú Inicio.',
-      });
+      toast({ tone: 'info', title: 'ProductFinderSV se cerró', body: `Las búsquedas automáticas se detuvieron. ${reopenHint}` });
     },
   });
 
@@ -275,7 +276,7 @@ export function Settings() {
             checked={form.schedulerEnabled}
             onChange={(v) => set('schedulerEnabled', v)}
             label="Búsquedas automáticas"
-            description="Apágalo para que el bot no busque solo. “Probar ahora” sigue funcionando."
+            description="Apágalo para que el bot no busque solo. “Probar ahora” sigue funcionando, salvo durante una pausa por verificación de Facebook."
           />
           <ChoiceList
             name="browserMode"
@@ -358,7 +359,7 @@ export function Settings() {
       <ConfirmDialog
         open={confirmClose}
         title="Cerrar ProductFinderSV"
-        message="Se detendrán las búsquedas automáticas hasta que vuelvas a abrir ProductFinderSV desde el escritorio o el menú Inicio."
+        message={`Se detendrán las búsquedas automáticas. ${reopenHint}`}
         confirmLabel="Cerrar"
         loading={shutdown.isPending}
         onCancel={() => setConfirmClose(false)}

@@ -278,6 +278,8 @@ test('inicio con Windows solo en la app de escritorio', async () => {
   const res = await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: true } });
   assert.deepEqual(res.json(), { enabled: true });
   assert.equal(enabled, true);
+  // La elección queda guardada para restaurarla si reinstala conservando los datos.
+  assert.equal(store.settings.get('autostartWanted'), true);
   assert.equal((await desktop.inject({ method: 'PUT', url: '/api/system/autostart', payload: { enabled: 'si' } })).statusCode, 400);
 });
 

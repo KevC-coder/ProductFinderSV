@@ -23,6 +23,17 @@ function reg(args: string[]): Promise<{ ok: boolean; stdout: string }> {
   });
 }
 
+/**
+ * Al arrancar el servicio: si el usuario eligió iniciar con Windows pero la clave ya no está
+ * (p. ej. desinstaló conservando sus datos y volvió a instalar), se vuelve a crear.
+ * Devuelve true si la restauró.
+ */
+export async function restoreAutostart(wanted: boolean | null, autostart: Autostart): Promise<boolean> {
+  if (wanted !== true || (await autostart.isEnabled())) return false;
+  await autostart.setEnabled(true);
+  return true;
+}
+
 /** Comando que se registra: el .exe instalado en modo segundo plano (sin abrir la ventana). */
 export const autostartCommand = (exePath: string) => `"${exePath}" --background`;
 

@@ -88,6 +88,23 @@ Remove-Item -Path '${UNINSTALL_KEY}' -Recurse -Force
 }
 
 /**
+ * Termina los procesos que queden de ese .exe (supervisor esperando para reiniciar, servicio
+ * colgado), salvo `exceptPid` (quien lo pide). Se usa antes de reemplazar o borrar el .exe:
+ * un supervisor vivo volvería a lanzar el servicio y Windows no deja tocar un .exe en uso.
+ */
+export function stopProcessesScript(opts: { exePath: string; exceptPid: number }): string {
+  return `
+$exe = ${psString(opts.exePath)}
+for ($i = 0; $i -lt 20; $i++) {
+  $p = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ($_.Path -ieq $exe) -and ($_.Id -ne ${opts.exceptPid}) }
+  if (-not $p) { break }
+  $p | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 500
+}
+`;
+}
+
+/**
  * Borra las carpetas cuando ya no queda ningún proceso de ProductFinderSV.exe (el
  * desinstalador y el servicio que se está cerrando): Windows no deja borrar un .exe en uso.
  * Espera hasta 2 minutos y reintenta el borrado unas veces por si algún archivo sigue tomado.

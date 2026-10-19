@@ -26,6 +26,11 @@ export interface Settings {
   notifyMode: NotifyMode;
   /** El usuario aceptó el aviso de riesgos del primer arranque (pantalla de bienvenida). */
   riskNoticeAccepted: boolean;
+  /**
+   * Lo que eligió el usuario para "Iniciar con Windows" (null = todavía no eligió). Se guarda
+   * aquí, además de en el registro de Windows, para restaurarlo si reinstala conservando datos.
+   */
+  autostartWanted: boolean | null;
 
   // ---- Estado interno (solo lectura desde la API) ----
   /** Estado de la sesión de Facebook según la última corrida o login. */
@@ -47,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxResultsPerRun: 60,
   notifyMode: 'all',
   riskNoticeAccepted: false,
+  autostartWanted: null,
   sessionState: 'unknown',
   pausedUntil: null,
 };
