@@ -182,6 +182,8 @@ export interface TelegramState {
   notifyMode: NotifyMode;
   /** Vinculación en curso: enlace de un solo uso que se abre en Telegram. */
   linking: { url: string; code: string; expiresAt: string } | null;
-  /** Último problema de conexión con Telegram. */
+  /** Telegram dejó de aceptar el token (revocado): hay que pegar el nuevo. */
+  tokenRejected: boolean;
+  /** Problema actual con Telegram. */
   error: string | null;
 }

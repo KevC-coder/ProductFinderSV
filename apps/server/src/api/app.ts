@@ -10,6 +10,7 @@ import { PAUSED_RUN_MESSAGE, RunRefusedError, type Bot } from '../scheduler/bot.
 import { APP_VERSION, VERSION_HEADER } from '../version.js';
 import { registerErrorHandler } from './errors.js';
 import { registerEvents } from './events.js';
+import { registerLocalOnly } from './local-only.js';
 import { registerTelegramRoutes } from './telegram.js';
 import type { TelegramService } from '../telegram/service.js';
 import {
@@ -84,6 +85,7 @@ export function buildApp({ store, bot, logger = false, webDir, onShutdown, deskt
   app.addHook('onSend', async (_req, reply) => {
     reply.header(VERSION_HEADER, APP_VERSION);
   });
+  registerLocalOnly(app);
 
   registerErrorHandler(app);
   registerEvents(app, bot);

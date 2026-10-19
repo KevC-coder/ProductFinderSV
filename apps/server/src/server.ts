@@ -114,6 +114,8 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
       { watcherId: s.watcherId, status: s.status, found: s.foundCount, new: s.newMatchIds.length, error: s.errorMessage },
       'corrida terminada',
     );
+    // Una corrida correcta confirma que la sesión de Facebook volvió a funcionar.
+    if (s.status === 'ok') void telegram.notifySession('connected');
     // "Probar ahora" ya muestra el resultado en el panel; los avisos son para las corridas automáticas.
     if (s.manual) return;
     if (notifier) notifyRun(store, notifier, s).catch((err) => app.log.warn({ err }, 'no se pudo mostrar el aviso de Windows'));

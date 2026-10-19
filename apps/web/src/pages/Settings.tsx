@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { LogIn, Power, RotateCcw } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { sessionTone } from '../components/BotStatusCard';
 import { ChoiceList, NOTIFY_CHOICES, type Choice } from '../components/ChoiceList';
 import { TelegramSettings } from '../components/TelegramSettings';
@@ -80,20 +80,18 @@ export function Settings() {
   const connect = useConnectSession();
   const toast = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState<EditableSettings | null>(null);
+  // Solo lo que el usuario cambió: lo demás siempre refleja el servidor (también cambios hechos
+  // desde fuera, como /pausar por Telegram o la bandeja), así "Guardar" nunca los deshace.
+  const [edits, setEdits] = useState<Partial<EditableSettings>>({});
   const [error, setError] = useState<string | null>(null);
 
   const desktop = !!status.data?.desktop;
   const autostart = useAutostart(desktop);
 
-  useEffect(() => {
-    if (settings.data && !form) setForm(editableOf(settings.data));
-  }, [settings.data, form]);
-
   const save = useMutation({
     mutationFn: (patch: Partial<EditableSettings>) => api.updateSettings(patch),
-    onSuccess: (saved) => {
-      setForm(editableOf(saved));
+    onSuccess: () => {
+      setEdits({});
       setError(null);
       void qc.invalidateQueries();
       toast({ tone: 'success', title: 'Ajustes guardados' });
@@ -115,16 +113,13 @@ export function Settings() {
     },
   });
 
-  if (!form || !settings.data) {
-    return (
-      <PageLoader />
-    );
-  }
+  if (!settings.data) return <PageLoader />;
 
   const { pausedUntil } = settings.data;
   const saved = editableOf(settings.data);
-  const changed = (Object.keys(form) as (keyof EditableSettings)[]).filter((k) => form[k] !== saved[k]);
-  const set = <K extends keyof EditableSettings>(k: K, v: EditableSettings[K]) => setForm({ ...form, [k]: v });
+  const form: EditableSettings = { ...saved, ...edits };
+  const changed = (Object.keys(edits) as (keyof EditableSettings)[]).filter((k) => edits[k] !== saved[k]);
+  const set = <K extends keyof EditableSettings>(k: K, v: EditableSettings[K]) => setEdits((e) => ({ ...e, [k]: v }));
 
   const numberField = (key: NumericKey) => {
     const f = NUMERIC[key];
@@ -150,7 +145,11 @@ export function Settings() {
           <>
             <Button
               icon={<RotateCcw className="size-4" />}
-              onClick={() => setForm({ ...DEFAULTS, schedulerEnabled: form.schedulerEnabled, notifyMode: form.notifyMode })}
+              onClick={() => {
+                // Los límites recomendados; el interruptor del bot y los avisos quedan como estén.
+                const { schedulerEnabled: _on, notifyMode: _notify, ...recommended } = DEFAULTS;
+                setEdits(recommended);
+              }}
             >
               Valores recomendados
             </Button>

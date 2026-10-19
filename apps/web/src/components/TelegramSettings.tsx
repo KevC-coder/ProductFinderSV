@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Send, Unlink } from 'lucide-react';
+import { ExternalLink, KeyRound, Send, Unlink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { formatTime } from '../lib/format';
@@ -15,6 +15,66 @@ const LINK_BUTTON =
   'inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-lime px-4 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-lime-hover';
 
 /**
+ * Campo para pegar el token. Es un texto con los caracteres ocultos y no un campo de
+ * contraseña: así Edge no ofrece guardarlo en su gestor (que se sincroniza fuera de la PC).
+ */
+function TokenForm({
+  onSaved,
+  autoFocus,
+  submitLabel = 'Guardar token',
+}: {
+  onSaved: (s: TelegramState) => void;
+  autoFocus?: boolean;
+  submitLabel?: string;
+}) {
+  const [token, setToken] = useState('');
+  const save = useMutation({
+    mutationFn: api.setTelegramToken,
+    onSuccess: (s) => {
+      setToken('');
+      onSaved(s);
+    },
+  });
+  return (
+    <>
+      <form
+        className="flex flex-col gap-2 sm:flex-row sm:items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (token.trim()) save.mutate(token);
+        }}
+      >
+        <Field label="Token del bot" className="flex-1">
+          {(id) => (
+            <Input
+              id={id}
+              type="text"
+              autoFocus={autoFocus}
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore=""
+              data-lpignore="true"
+              data-form-type="other"
+              aria-invalid={!!save.error}
+              className="[-webkit-text-security:disc]"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="123456789:AA…"
+            />
+          )}
+        </Field>
+        <Button type="submit" variant="primary" disabled={!token.trim()} loading={save.isPending}>
+          {submitLabel}
+        </Button>
+      </form>
+      {save.error && <ErrorNote>{save.error.message}</ErrorNote>}
+    </>
+  );
+}
+
+/**
  * Ajustes → Telegram. Tres pasos: pegar el token del bot creado con @BotFather, vincular el
  * chat con un enlace de un solo uso y elegir qué avisar. Todo se guarda al momento (no usa
  * el botón "Guardar" de la página).
@@ -22,8 +82,8 @@ const LINK_BUTTON =
 export function TelegramSettings() {
   const qc = useQueryClient();
   const toast = useToast();
-  const [token, setToken] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [changingToken, setChangingToken] = useState(false);
 
   const query = useQuery({
     queryKey: ['telegram'],
@@ -33,13 +93,15 @@ export function TelegramSettings() {
   });
   const saved = (s: TelegramState) => qc.setQueryData(['telegram'], s);
 
-  const saveToken = useMutation({
-    mutationFn: api.setTelegramToken,
-    onSuccess: (s) => {
-      saved(s);
-      setToken('');
-    },
-  });
+  const tokenSaved = (s: TelegramState) => {
+    saved(s);
+    setChangingToken(false);
+    toast({
+      tone: 'success',
+      title: `Bot @${s.botUsername} listo`,
+      body: s.linked ? 'Sigue vinculado con tu chat.' : 'Ahora vincula tu chat de Telegram.',
+    });
+  };
   const link = useMutation({ mutationFn: api.linkTelegram, onSuccess: saved });
   const mode = useMutation({
     mutationFn: api.setTelegramMode,
@@ -56,6 +118,8 @@ export function TelegramSettings() {
     onSuccess: (s) => {
       saved(s);
       setConfirmDisconnect(false);
+      setChangingToken(false);
+      toast({ tone: 'info', title: 'Telegram desvinculado' });
     },
   });
 
@@ -72,6 +136,9 @@ export function TelegramSettings() {
 
   if (query.isLoading) return <Spinner />;
   if (!s) return <ErrorNote>{query.error?.message ?? 'No se pudo leer la configuración de Telegram.'}</ErrorNote>;
+
+  // Con el token revocado se pide el nuevo directamente; si es del mismo bot, se conserva el chat.
+  const showTokenForm = s.configured && (changingToken || s.tokenRejected);
 
   return (
     <>
@@ -94,31 +161,21 @@ export function TelegramSettings() {
             <li>Elige un nombre y un usuario para tu bot (el usuario termina en “bot”).</li>
             <li>Copia el token que te da y pégalo aquí.</li>
           </ol>
-          <form
-            className="flex flex-col gap-2 sm:flex-row sm:items-end"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (token.trim()) saveToken.mutate(token);
-            }}
-          >
-            <Field label="Token del bot" className="flex-1">
-              {(id) => (
-                <Input
-                  id={id}
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="123456789:AA…"
-                />
-              )}
-            </Field>
-            <Button type="submit" variant="primary" disabled={!token.trim()} loading={saveToken.isPending}>
-              Guardar token
+          <TokenForm onSaved={tokenSaved} />
+        </>
+      ) : showTokenForm ? (
+        <>
+          <p className="text-sm">
+            Pega el token nuevo de <span className="font-semibold">@{s.botUsername}</span> (en @BotFather:{' '}
+            <code className="font-mono">/token</code> o <code className="font-mono">/revoke</code>). Si es del mismo bot, tu chat
+            sigue vinculado.
+          </p>
+          <TokenForm onSaved={tokenSaved} autoFocus submitLabel="Guardar token nuevo" />
+          {!s.tokenRejected && (
+            <Button size="sm" variant="ghost" onClick={() => setChangingToken(false)}>
+              Cancelar
             </Button>
-          </form>
-          {saveToken.error && <ErrorNote>{saveToken.error.message}</ErrorNote>}
+          )}
         </>
       ) : !s.linked ? (
         <>
@@ -132,9 +189,9 @@ export function TelegramSettings() {
           ) : (
             <div className="space-y-3 rounded-lg border border-border bg-bg p-4">
               <p className="text-sm">
-                Abre este enlace donde usas Telegram y pulsa <span className="font-semibold">Iniciar</span>:
+                Abre este enlace en un chat privado de Telegram y pulsa <span className="font-semibold">Iniciar</span>:
               </p>
-              <a href={s.linking.url} target="_blank" rel="noreferrer" className={LINK_BUTTON}>
+              <a href={s.linking.url} target="_blank" rel="noreferrer" className={LINK_BUTTON} autoFocus>
                 Abrir en Telegram <ExternalLink className="size-4" />
               </a>
               <p className="text-xs text-muted">
@@ -147,15 +204,20 @@ export function TelegramSettings() {
             </div>
           )}
           {link.error && <ErrorNote>{link.error.message}</ErrorNote>}
-          <Button size="sm" variant="ghost" onClick={() => setConfirmDisconnect(true)}>
-            Usar otro bot
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" icon={<KeyRound className="size-3.5" />} onClick={() => setChangingToken(true)}>
+              Cambiar token
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDisconnect(true)}>
+              Usar otro bot
+            </Button>
+          </div>
         </>
       ) : (
         <>
           <p className="flex items-start gap-2 text-sm">
             <span className="mt-1.5">
-              <Dot tone="success" />
+              <Dot tone={s.error ? 'warning' : 'success'} />
             </span>
             <span>
               Vinculado con <span className="font-semibold">{s.chatName}</span> mediante @{s.botUsername}
@@ -183,6 +245,9 @@ export function TelegramSettings() {
             <Button icon={<Send className="size-4" />} onClick={() => test.mutate()} loading={test.isPending}>
               Enviar mensaje de prueba
             </Button>
+            <Button variant="ghost" icon={<KeyRound className="size-4" />} onClick={() => setChangingToken(true)}>
+              Cambiar token
+            </Button>
             <Button variant="ghost" icon={<Unlink className="size-4" />} onClick={() => setConfirmDisconnect(true)}>
               Desvincular
             </Button>
@@ -198,10 +263,23 @@ export function TelegramSettings() {
       <ConfirmDialog
         open={confirmDisconnect}
         title="Desvincular Telegram"
-        message="ProductFinderSV dejará de usar este bot y no enviará más avisos a Telegram. Para volver a usarlo tendrás que pegar el token y vincular tu chat otra vez."
+        message={
+          <>
+            ProductFinderSV dejará de usar este bot y no enviará más avisos a Telegram. Para volver a usarlo tendrás que pegar el
+            token y vincular tu chat otra vez.
+            {disconnect.error && (
+              <div className="mt-3">
+                <ErrorNote>No se pudo desvincular: {disconnect.error.message}</ErrorNote>
+              </div>
+            )}
+          </>
+        }
         confirmLabel="Desvincular"
         loading={disconnect.isPending}
-        onCancel={() => setConfirmDisconnect(false)}
+        onCancel={() => {
+          setConfirmDisconnect(false);
+          disconnect.reset();
+        }}
         onConfirm={() => disconnect.mutate()}
       />
     </>

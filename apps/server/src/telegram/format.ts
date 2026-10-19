@@ -1,6 +1,6 @@
 import type { MatchView } from '../db/matches.js';
 import type { SessionState } from '../domain/types.js';
-import { formatPrice, type RunNews } from '../notifier/notification.js';
+import { formatPrice, truncateText, type RunNews } from '../notifier/notification.js';
 import type { InlineButton } from './api.js';
 
 /** Límites de Telegram: texto de un mensaje y pie de una foto. */
@@ -33,8 +33,7 @@ const byScore = (a: MatchView, b: MatchView) => b.score - a.score;
 
 function itemLines(m: MatchView, index: number, isDrop: boolean): string {
   const l = m.listing;
-  const title = (l.title ?? 'Sin título').replace(/\s+/g, ' ').trim();
-  const short = title.length > 90 ? `${title.slice(0, 89)}…` : title;
+  const short = truncateText(l.title ?? 'Sin título', 90);
   const details = [formatPrice(l.price)];
   if (isDrop && l.previousPrice != null && l.price != null && l.previousPrice > l.price) {
     details[0] += ` (antes ${formatPrice(l.previousPrice)})`;
@@ -70,7 +69,10 @@ export function runMessage(news: RunNews, maxItems = 5): RunMessage {
   const photo = best.listing.imageUrl ?? null;
   const limit = photo ? CAPTION_LIMIT : TEXT_LIMIT;
 
-  const header = `<b>${escapeHtml(watcher.name)}</b>: ${parts.join(' · ')}`;
+  // El orden es la puntuación del bot: se explica qué mide en vez de llamar "el mejor" a nadie.
+  const header =
+    `<b>${escapeHtml(watcher.name)}</b>: ${parts.join(' · ')}\n` +
+    '<i>Ordenados por puntuación: precio frente a tu precio ideal, keywords deseables y antigüedad.</i>';
   const footer = (rest: number) => (rest > 0 ? `\n\n${rest === 1 ? 'Y 1 más' : `Y ${rest} más`} en el panel de ProductFinderSV.` : '');
   let body = '';
   let shown = 0;
@@ -84,7 +86,7 @@ export function runMessage(news: RunNews, maxItems = 5): RunMessage {
   return {
     text: header + body + footer(items.length - shown),
     photo,
-    button: { text: 'Ver el mejor en Facebook', url: best.listing.url },
+    button: { text: 'Ver el n.º 1 en Facebook', url: best.listing.url },
   };
 }
 

@@ -28,14 +28,22 @@ export function formatPrice(price: number | null): string {
 
 const byScore = (a: MatchView, b: MatchView) => b.score - a.score;
 
+/**
+ * Acorta un texto a `max` caracteres con "…" sin partir emojis ni otros caracteres de dos
+ * unidades (un surrogate suelto hace que Telegram o Windows rechacen el aviso entero).
+ */
+export function truncateText(text: string, max: number): string {
+  const chars = Array.from(text.replace(/\s+/g, ' ').trim());
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join('');
+}
+
 function describe(m: MatchView): string {
   const l = m.listing;
   let price = formatPrice(l.price);
   if (l.previousPrice != null && l.price != null && l.previousPrice > l.price) {
     price += ` (antes ${formatPrice(l.previousPrice)})`;
   }
-  const title = (l.title ?? 'Sin título').replace(/\s+/g, ' ').trim();
-  const short = title.length > 80 ? `${title.slice(0, 79)}…` : title;
+  const short = truncateText(l.title ?? 'Sin título', 80);
   return `${price} · ${short}${m.isIdealPrice ? ' · Precio ideal' : ''}`;
 }
 

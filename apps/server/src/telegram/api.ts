@@ -64,6 +64,12 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 /** Formato de los tokens de @BotFather: "<id numérico>:<secreto>". */
 export const TOKEN_PATTERN = /^\d{5,}:[A-Za-z0-9_-]{30,}$/;
 
+/** Cambia surrogates sueltos por U+FFFD: Telegram rechaza la petición entera si el JSON los trae. */
+const wellFormed = (_key: string, value: unknown) =>
+  typeof value === 'string'
+    ? value.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+    : value;
+
 export function createTelegramApi(token: string, fetchImpl: FetchLike = fetch): TelegramApi {
   const call = async <T>(method: string, body: object, signal?: AbortSignal): Promise<T> => {
     let res: Response;
@@ -71,7 +77,7 @@ export function createTelegramApi(token: string, fetchImpl: FetchLike = fetch): 
       res = await fetchImpl(`https://api.telegram.org/bot${token}/${method}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(body, wellFormed),
         signal: signal ?? AbortSignal.timeout(20_000),
       });
     } catch (err) {

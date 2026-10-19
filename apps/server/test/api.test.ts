@@ -319,3 +319,24 @@ test('el estado informa del servicio en segundo plano solo en la app de escritor
   });
   assert.deepEqual((await desktop.inject({ method: 'GET', url: '/api/status' })).json().service, service);
 });
+
+test('rechaza peticiones de páginas web ajenas (DNS rebinding y CSRF)', async () => {
+  const { app } = setup();
+  const req = (method: 'GET' | 'POST', headers: Record<string, string>) =>
+    app.inject({ method, url: method === 'GET' ? '/api/status' : '/api/scheduler/resume', headers });
+
+  // Panel (Edge --app), bandeja, lanzador y Vite en desarrollo.
+  assert.equal((await req('GET', { host: '127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787' })).statusCode, 200);
+  assert.equal((await req('POST', { host: 'localhost:5173', origin: 'http://localhost:5173' })).statusCode, 200);
+
+  // Un dominio ajeno que resuelve a 127.0.0.1, o una web ajena enviando un formulario.
+  const rebind = await req('GET', { host: 'rebind.atacante.example:8787' });
+  assert.equal(rebind.statusCode, 403);
+  assert.equal(rebind.json().error, 'Acceso no permitido');
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'https://atacante.example' })).statusCode, 403);
+  assert.equal((await req('POST', { host: '127.0.0.1:8787', origin: 'null' })).statusCode, 403);
+  // Las lecturas desde otra web siguen bloqueadas por el navegador (sin CORS): GET con Origin ajeno se permite.
+  assert.equal((await req('GET', { host: '127.0.0.1:8787', origin: 'https://atacante.example' })).statusCode, 200);
+});

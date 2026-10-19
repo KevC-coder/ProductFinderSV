@@ -192,7 +192,12 @@ export function PageLoader() {
 }
 
 export function ErrorNote({ children }: { children: ReactNode }) {
-  return <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">{children}</p>;
+  // role="alert": los lectores de pantalla lo anuncian al aparecer.
+  return (
+    <p role="alert" className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
+      {children}
+    </p>
+  );
 }
 
 // ---- Formularios ----------------------------------------------------------------------

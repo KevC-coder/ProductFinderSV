@@ -159,6 +159,25 @@ test('vincular: solo con el código de un solo uso; el resto de chats se ignora'
   await tg.stop();
 });
 
+test('vincular: solo desde un chat privado, y el chat anterior se entera del cambio', async () => {
+  const { tg, store, calls } = await linked();
+  const link = tg.startLinking();
+  const group: TelegramUpdate = {
+    update_id: 1,
+    message: { message_id: 1, date: unix(NOW), chat: { id: -100123, type: 'group', title: 'Familia' }, text: `/start@MiBuscadorBot ${link.code}` },
+  };
+  await tg.handleUpdate(group);
+  assert.equal(store.settings.get('telegramChatId'), '555');
+  assert.match(String(calls.at(-1)?.params.text), /chat privado/);
+  assert.ok(tg.state().linking, 'el código sigue valiendo');
+
+  await tg.handleUpdate(message(`/start ${link.code}`, 888));
+  assert.equal(store.settings.get('telegramChatId'), '888');
+  const toOld = calls.find((c) => c.method === 'sendMessage' && c.params.chat_id === '555');
+  assert.match(String(toOld?.params.text), /otro chat \(Ana López\)/);
+  await tg.stop();
+});
+
 test('comandos desde el chat vinculado: estado, pausar y reanudar', async () => {
   const { tg, store, calls } = await linked();
   const lastText = () => String(calls.filter((c) => c.method === 'sendMessage').at(-1)?.params.text);
@@ -179,9 +198,12 @@ test('comandos desde el chat vinculado: estado, pausar y reanudar', async () => 
 
   const before = calls.length;
   await tg.handleUpdate(message('/pausar@OtroBot'));
-  await tg.handleUpdate(message('/pausar', 555, new Date(NOW.getTime() - 60 * 60_000)));
-  assert.equal(store.settings.get('schedulerEnabled'), true, 'ni comandos a otro bot ni órdenes viejas');
+  assert.equal(store.settings.get('schedulerEnabled'), true, 'comando para otro bot');
   assert.equal(calls.length, before);
+  // Órdenes que llegaron con la PC apagada: no se ejecutan, se avisa.
+  await tg.handleUpdate(message('/pausar'), { backlog: true });
+  assert.equal(store.settings.get('schedulerEnabled'), true);
+  assert.match(lastText(), /mientras ProductFinderSV estaba apagado y no lo ejecuté/);
 
   await tg.handleUpdate(message('hola'));
   assert.match(lastText(), /No entendí/);
@@ -209,7 +231,7 @@ test('aviso por búsqueda: foto del mejor, lista y botón; vuelve a texto si la 
   assert.match(caption, /^<b>iPhone 13<\/b>: 2 resultados nuevos/);
   assert.match(caption, /1\. <a href="https:\/\/www\.facebook\.com\/marketplace\/item\/1\/">iPhone 13 &lt;liberado&gt;<\/a>\n\$260 · Precio ideal/);
   assert.deepEqual(photo.params.reply_markup, {
-    inline_keyboard: [[{ text: 'Ver el mejor en Facebook', url: 'https://www.facebook.com/marketplace/item/1/' }]],
+    inline_keyboard: [[{ text: 'Ver el n.º 1 en Facebook', url: 'https://www.facebook.com/marketplace/item/1/' }]],
   });
   assert.ok(store.matches.get(ids[0]!)!.notifiedAt);
 
@@ -288,7 +310,22 @@ test('escucha mensajes con long polling y se detiene limpio', async () => {
   assert.equal(store.settings.get('telegramChatId'), '555');
   const polls = calls.filter((c) => c.method === 'getUpdates');
   assert.equal(polls.at(-1)!.params.offset, 42, 'confirma los mensajes ya leídos');
-  assert.equal(polls[0]!.params.timeout, 50);
+  assert.equal(polls[0]!.params.timeout, 0, 'primero lee lo acumulado sin esperar');
+  assert.equal(polls.at(-1)!.params.timeout, 50);
+  await tg.stop();
+});
+
+test('al arrancar, las órdenes acumuladas con la PC apagada no se ejecutan', async () => {
+  const { tg, store, push } = await linked();
+  await tg.stop();
+  push([{ ...message('/pausar'), update_id: 7 }]);
+  tg.start();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(store.settings.get('schedulerEnabled'), true);
+  // Las que llegan después sí.
+  push([{ ...message('/pausar'), update_id: 8 }]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(store.settings.get('schedulerEnabled'), false);
   await tg.stop();
 });
 
@@ -326,6 +363,67 @@ test('cliente de la API: errores de Telegram y de red sin filtrar el token', asy
     throw new TypeError(`fetch failed for https://api.telegram.org/bot${TOKEN}/getMe`);
   });
   await assert.rejects(offline.getMe(), (err: TelegramError) => err.code === 0 && !err.message.includes(TOKEN));
+});
+
+test('el recorte de títulos no parte emojis (Telegram rechazaría el aviso)', () => {
+  const store = createStore(':memory:');
+  const w = store.watchers.create(watcherInput());
+  store.listings.upsert(makeListing({ id: '1', title: `${'x'.repeat(88)}🔥 negociable y en buen estado` }));
+  const ev: Evaluation = { verdict: 'match', score: 60, matchedKeywords: [], isIdealPrice: false, descriptionPending: false, reason: null };
+  const m = store.matches.get(store.matches.upsert(w.id, '1', ev).id)!;
+  const text = runMessage({ watcher: w, fresh: [m], drops: [] }).text;
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(text), false);
+  assert.match(text, /x{88}🔥…/);
+});
+
+test('cliente de la API: nunca envía surrogates sueltos', async () => {
+  let body = '';
+  const api = createTelegramApi(TOKEN, async (_url, init) => {
+    body = String(init.body);
+    return new Response(JSON.stringify({ ok: true, result: {} }));
+  });
+  await api.sendMessage({ chat_id: '1', text: `roto \uD83D fin` });
+  assert.equal(JSON.parse(body).text, 'roto \uFFFD fin');
+});
+
+test('errores al enviar: quedan visibles hasta que vuelve a funcionar; un 401 pide el token nuevo', async () => {
+  const { tg, store } = await linked();
+  let fail: TelegramError | null = new TelegramError(403, 'Forbidden: bot was blocked by the user');
+  const api = (tg as unknown as { api: TelegramApi }).api;
+  const original = api.sendMessage;
+  api.sendMessage = async (p) => {
+    if (fail) throw fail;
+    return original(p);
+  };
+  await assert.rejects(tg.notifySession('checkpoint'));
+  assert.match(tg.state().error!, /bloqueaste/);
+  // No se marcó como avisado: se reintenta en la próxima corrida.
+  fail = null;
+  await tg.notifySession('checkpoint');
+  assert.equal(tg.state().error, null, 'se limpia al volver a enviar bien');
+
+  fail = new TelegramError(401, 'Unauthorized');
+  await assert.rejects(tg.sendTest(), /token/);
+  assert.equal(tg.state().tokenRejected, true);
+  assert.throws(() => tg.startLinking(), /token nuevo/);
+  // Un token nuevo del mismo bot conserva el chat vinculado.
+  fail = null;
+  const after = await tg.setToken(TOKEN);
+  assert.deepEqual([after.tokenRejected, after.linked], [false, true]);
+  assert.equal(store.settings.get('telegramChatId'), '555');
+  await tg.stop();
+});
+
+test('foto rechazada → texto; corte de red → no se reenvía (evita duplicados)', async () => {
+  const { tg, store, calls } = await linked();
+  const api = (tg as unknown as { api: TelegramApi }).api;
+  api.sendPhoto = async () => {
+    throw new TelegramError(0, 'No se pudo conectar con Telegram');
+  };
+  const summary = await runWith(store, [makeListing({ id: '1', price: 250, imageUrl: 'https://x/1.jpg' })]);
+  await assert.rejects(tg.notifyRun(summary));
+  assert.equal(calls.filter((c) => c.method === 'sendMessage').length, 0);
+  await tg.stop();
 });
 
 test('escapeHtml', () => {
