@@ -32,8 +32,11 @@ Requisitos: Windows 10/11 con Microsoft Edge (ya viene instalado). No hace falta
 
 El `.exe` (~92 MB) **no se sube al repositorio**: lo construye GitHub Actions y lo adjunta al Release.
 
-1. Sube la versión en `package.json` (p. ej. `0.2.0`) y haz commit.
-2. Crea y sube la etiqueta:
+1. Sube la versión (p. ej. `0.2.0`) en todos los `package.json` y en `package-lock.json`, y haz commit:
+   ```bash
+   npm version 0.2.0 --no-git-tag-version --workspaces --include-workspace-root
+   ```
+2. Con ese commit ya en `main`, crea y sube la etiqueta desde `main`:
    ```bash
    git tag v0.2.0
    ```
